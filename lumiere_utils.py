@@ -108,6 +108,8 @@ def raycast_light(self, event, context, range, ray_max=1000.0):
 				_light_loc = light_loc
 				_direction = reflect_dir
 
+				if light.Lumiere.reflect_angle == "2":
+					light.Lumiere.bbox_center = global_bbox_center
 			#---Parent the light to the target object
 				light.parent = obj_trgt
 				light.matrix_parent_inverse = matrix_trgt.inverted()
@@ -115,15 +117,13 @@ def raycast_light(self, event, context, range, ray_max=1000.0):
 #---Define location, rotation and scale
 	if length_squared > 0 :
 		if self.shift :
-			# track  = light.location - Vector(_hit)
-			rotaxis = (_hit.to_track_quat('Z','Y')).to_euler()
+			track  = light.location - Vector(_matrix_trgt @ _hit)
+			rotaxis = (track.to_track_quat('Z','Y')).to_euler()
 		else :
 			rotaxis = (_direction.to_track_quat('Z','Y')).to_euler()
 			light.location = Vector((_light_loc[0], _light_loc[1], _light_loc[2]))
 
 		light.Lumiere.hit = (_matrix_trgt @ _hit)
-		light.Lumiere.direction = _direction
-		light.rotation_euler = rotaxis
 
 #---Update rotation and pitch for spherical coordinate
 		x,y,z = light.location - Vector((light.Lumiere.hit))
@@ -135,8 +135,11 @@ def raycast_light(self, event, context, range, ray_max=1000.0):
 		phi = acos( z / r )
 		light.Lumiere.pitch = degrees(phi)
 
+		light.Lumiere.direction = _direction
+		light.rotation_euler = rotaxis
+
 # -------------------------------------------------------------------- #
-def create_2d_circle(self, step, radius, rotation = 0, center_x=0, center_y=0):
+def create_2d_circle(step, radius, rotation = 0, center_x=0, center_y=0):
 	""" Create the vertices of a 2d circle at (0,0) """
 	#https://stackoverflow.com/questions/8487893/generate-all-the-points-on-the-circumference-of-a-circle
 	indices = []
@@ -154,7 +157,7 @@ def create_2d_circle(self, step, radius, rotation = 0, center_x=0, center_y=0):
 	return(verts, indices)
 
 # -------------------------------------------------------------------- #
-def draw_circle(self, center_circle, radius_circle, steps):
+def draw_circle(center_circle, radius_circle, steps):
 	""" Return the coordinates + indices of a circle using a triangle fan """
 	indices = []
 	center_x, center_y = center_circle
@@ -165,7 +168,7 @@ def draw_circle(self, center_circle, radius_circle, steps):
 	# steps = int(360 / steps)
 
 	# Get the vertices of a 2d circle
-	verts, indices = create_2d_circle(self, steps, radius, rotation, center_x, center_y)
+	verts, indices = create_2d_circle(steps, radius, rotation, center_x, center_y)
 
 	return(verts, indices)
 

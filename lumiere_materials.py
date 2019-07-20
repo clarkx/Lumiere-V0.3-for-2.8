@@ -17,13 +17,10 @@ from mathutils import (
 #########################################################################################################
 """Cycles material nodes for the Softbox light"""
 def softbox_mat(light):
-	print("CREATE MATERIAL SOFTBOX")
 
 #---Create a new material for cycles Engine.
 	if bpy.context.scene.render.engine != 'CYCLES':
 		bpy.context.scene.render.engine = 'CYCLES'
-
-	print("LIGHT MAT: ", light.active_material)
 
 	if light.active_material is None:
 		mat = bpy.data.materials.new(light.name)
@@ -60,36 +57,6 @@ def softbox_mat(light):
 	colramp.color_ramp.elements[0].color = (1,1,1,1)
 	colramp.inputs[0].default_value = 0
 	colramp.location = (-1380, -640)
-
-#### EDGES ###
-
-# TEST 3
-#
-# #---Mix Color Texture
-# 	mix_edges = mat.node_tree.nodes.new(type = 'ShaderNodeMixRGB')
-# 	mix_edges.name = "mix_edges"
-# 	mix_edges.blend_type = 'MIX'
-# 	mix_edges.inputs[0].default_value = 0.5
-# 	mix_edges.inputs['Color1'].default_value = [1,1,1,1]
-# 	mix_edges.inputs['Color2'].default_value = [0,0,0,1]
-# 	mat.node_tree.links.new(coord.outputs[3], mix_edges.inputs[1])
-# 	mix_edges.location = (-1360, 340)
-#
-# #---Grandient Node Spherical
-# 	grad_edges = mat.node_tree.nodes.new(type="ShaderNodeTexGradient")
-# 	mat.node_tree.links.new(mix_edges.outputs[0], grad_edges.inputs[0])
-# 	grad_edges.gradient_type = 'SPHERICAL'
-# 	grad_edges.location = (-1180, 300)
-#
-# #---Color Ramp Node Edges
-# 	colramp_edges = mat.node_tree.nodes.new(type="ShaderNodeValToRGB")
-# 	colramp_edges.name = "colramp_edges"
-# 	mat.node_tree.links.new(grad_edges.outputs[1], colramp_edges.inputs['Fac'])
-# 	colramp_edges.color_ramp.elements[0].color = (0,0,0,1)
-# 	colramp_edges.inputs[0].default_value = 0
-# 	colramp_edges.location = (-1000, 360)
-
-# TEST 2
 
 #---Invert Node
 	edge_invert = mat.node_tree.nodes.new(type="ShaderNodeInvert")
@@ -169,6 +136,13 @@ def softbox_mat(light):
 	mat.node_tree.links.new(edge_power.outputs[0], edge_mult5.inputs[1])
 	edge_mult5.location = (-920.0, 440.0)
 
+#---Multiply Node 6
+	# edge_mult6 = mat.node_tree.nodes.new(type="ShaderNodeMath")
+	# edge_mult6.name = "Edges Multiply6"
+	# edge_mult6.operation = 'MULTIPLY'
+	# mat.node_tree.links.new(edge_mult5.outputs[0], edge_mult6.inputs[0])
+	# edge_mult6.location = (-920.0, 260.0)
+
 #---Mix Edges / Color for reflection only
 	refl_mix_color_edges = mat.node_tree.nodes.new(type = 'ShaderNodeMixRGB')
 	refl_mix_color_edges.name = "Reflect_Mix_Color_Edges"
@@ -188,61 +162,10 @@ def softbox_mat(light):
 	mix_color_edges.inputs['Color2'].default_value = [1,1,1,1]
 	mix_color_edges.location = (-720, -180)
 
-# TEST 1
-
-# #---Mapping Node
-# 	edgemap = mat.node_tree.nodes.new(type="ShaderNodeMapping")
-# 	edgemap.name = "Edges map"
-# 	edgemap.translation[0] = 0.5
-# 	edgemap.translation[1] = 0.5
-# 	mat.node_tree.links.new(coord.outputs[2], edgemap.inputs[0])
-# 	edgemap.vector_type = "TEXTURE"
-# 	edgemap.location = (-1540, 840)
-#
-# #---Grandient Node Quadratic
-# 	edge_grad = mat.node_tree.nodes.new(type="ShaderNodeTexGradient")
-# 	mat.node_tree.links.new(edgemap.outputs[0], edge_grad.inputs[0])
-# 	edge_grad.gradient_type = 'QUADRATIC_SPHERE'
-# 	edge_grad.location = (-1180, 760)
-#
-# #---Color Ramp Node
-# 	edge_colramp = mat.node_tree.nodes.new(type="ShaderNodeValToRGB")
-# 	mat.node_tree.links.new(edge_grad.outputs[0], edge_colramp.inputs['Fac'])
-# 	edge_colramp.color_ramp.interpolation = 'B_SPLINE'
-# 	edge_colramp.color_ramp.elements[0].color = (0,0,0,1)
-# 	edge_colramp.inputs[0].default_value = 0
-# 	edge_colramp.color_ramp.elements.new(1)
-# 	edge_colramp.color_ramp.elements[1].color = (1,1,1,1)
-# 	edge_colramp.location = (-1000, 760)
-#
 #---Light path
 	reflect_light_path = mat.node_tree.nodes.new(type = 'ShaderNodeLightPath')
 	reflect_light_path.name = "Reflect Light Path"
 	reflect_light_path.location = (-220, 380)
-#
-# #---Light path Math ADD
-# 	edge_math = mat.node_tree.nodes.new(type = 'ShaderNodeMath')
-# 	edge_math.name = "Edge math"
-# 	mat.node_tree.links.new(edge_light_path.outputs[5], edge_math.inputs[0])
-# 	edge_math.inputs[0].default_value = -1
-# 	edge_math.inputs[1].default_value = -1
-# 	edge_math.operation = 'ADD'
-# 	edge_math.location = (-960, 500)
-#
-# #---Math SUBTRACT
-# 	edges_math_sub = mat.node_tree.nodes.new(type = 'ShaderNodeMath')
-# 	edges_math_sub.name = "Edges math sub"
-# 	mat.node_tree.links.new(edge_colramp.outputs[0], edges_math_sub.inputs[0])
-# 	mat.node_tree.links.new(edge_math.outputs[0], edges_math_sub.inputs[1])
-# 	edges_math_sub.operation = 'SUBTRACT'
-# 	edges_math_sub.location = (-720, 680)
-#
-# #---Emission Node Edges
-# 	edges_emit = mat.node_tree.nodes.new(type = 'ShaderNodeEmission')
-# 	edges_emit.name = "Emit edges"
-# 	edges_emit.inputs[0].default_value = (0, 0, 0, 1)
-# 	edges_emit.inputs[1].default_value = 0
-# 	edges_emit.location = (-720, 500)
 
 #### IMAGE TEXTURE ###
 
@@ -256,7 +179,7 @@ def softbox_mat(light):
 #---Image Texture
 	texture = mat.node_tree.nodes.new(type = 'ShaderNodeTexImage')
 	mat.node_tree.links.new(textmap.outputs[0], texture.inputs[0])
-	texture.projection = 'BOX'
+	texture.projection = 'FLAT'
 	texture.extension = 'CLIP'
 	texture.location = (-1560, 160)
 
@@ -286,30 +209,6 @@ def softbox_mat(light):
 	mat.node_tree.links.new(mix_color_edges.outputs[0], mix_color_text.inputs[2])
 	mix_color_text.location = (-500, -80)
 
-
-# #---Bright / Contrast
-# 	bright = mat.node_tree.nodes.new(type = 'ShaderNodeBrightContrast')
-# 	mat.node_tree.links.new(texture.outputs[0], bright.inputs[0])
-# 	bright.location = (-1280, 60)
-#
-# #---Gamma
-# 	gamma = mat.node_tree.nodes.new(type = 'ShaderNodeGamma')
-# 	mat.node_tree.links.new(bright.outputs[0], gamma.inputs[0])
-# 	gamma.location = (-1100, 40)
-#
-# #---Hue / Saturation / Value
-# 	hue = mat.node_tree.nodes.new(type = 'ShaderNodeHueSaturation')
-# 	mat.node_tree.links.new(gamma.outputs[0], hue.inputs[4])
-# 	hue.location = (-920, 80)
-
-#---Math SUBTRACT
-	# text_math_sub = mat.node_tree.nodes.new(type = 'ShaderNodeMath')
-	# text_math_sub.name = "Texture math sub"
-	# mat.node_tree.links.new(hue.outputs[0], text_math_sub.inputs[0])
-	# mat.node_tree.links.new(edge_light_path.outputs[5], text_math_sub.inputs[1])
-	# text_math_sub.operation = 'SUBTRACT'
-	# text_math_sub.location = (-720, 320)
-
 #### COLOR ###
 
 #---RGB Node
@@ -321,17 +220,6 @@ def softbox_mat(light):
 #---Blackbody
 	blackbody = mat.node_tree.nodes.new(type = 'ShaderNodeBlackbody')
 	blackbody.location = (-1220, -500)
-
-#---Mix Color Edges
-	# mix_color_edges = mat.node_tree.nodes.new(type = 'ShaderNodeMixRGB')
-	# mix_color_edges.name = "Mix_Color_Edges"
-	# mix_color_edges.blend_type = 'MULTIPLY'
-	# mix_color_edges.inputs[0].default_value = 1
-	# mix_color_edges.inputs['Color1'].default_value = [1,1,1,1]
-	# mix_color_edges.inputs['Color2'].default_value = [1,1,1,1]
-	# mat.node_tree.links.new(edge_mult5.outputs[0], mix_color_edges.inputs[1])
-	# mat.node_tree.links.new(color.outputs[0], mix_color_edges.inputs[2])
-	# mix_color_edges.location = (-720, -300)
 
 #### IES ###
 
@@ -355,6 +243,7 @@ def softbox_mat(light):
 	ies_math_mul = mat.node_tree.nodes.new(type = 'ShaderNodeMath')
 	ies_math_mul.name = "IES Math"
 	mat.node_tree.links.new(ies.outputs[0], ies_math_mul.inputs[0])
+	# mat.node_tree.links.new(ies.outputs[0], edge_mult6.inputs[1])
 	ies_math_mul.inputs[1].default_value = 0.01
 	ies_math_mul.operation = 'MULTIPLY'
 	ies_math_mul.location = (-1380, -200)
@@ -412,14 +301,6 @@ def softbox_mat(light):
 	mat.node_tree.links.new(texture_emit.outputs[0], mix1.inputs[2])
 	mix1.location = (180, 40)
 
-# #---Mix Shader Node 2 - EDGES
-# 	mix2 = mat.node_tree.nodes.new(type="ShaderNodeMixShader")
-# 	#Light path reflection
-# 	mat.node_tree.links.new(edges_math_sub.outputs[0], mix2.inputs[0])
-# 	mat.node_tree.links.new(edges_emit.outputs[0], mix2.inputs[1])
-# 	mat.node_tree.links.new(mix1.outputs[0], mix2.inputs[2])
-# 	mix2.location = (240, 100)
-
 #---Mix Shader Node 3 - BACKFACE
 	mix3 = mat.node_tree.nodes.new(type="ShaderNodeMixShader")
 	#Link Backface
@@ -434,16 +315,8 @@ def softbox_mat(light):
 	output = mat.node_tree.nodes.new(type = 'ShaderNodeOutputMaterial')
 	output.location = (960, 80)
 	output.select
-	# mat.node_tree.nodes["Emission"].inputs[1].default_value = 1
 	#Link them together
 	mat.node_tree.links.new(mix3.outputs[0], output.inputs['Surface'])
-
-#---RGB Color
-	# color = mat.node_tree.nodes.new(type="ShaderNodeRGB")
-	# color.location = (-940, -260)
-	# mat.node_tree.links.new(color.outputs[0], edge_mix_color.inputs[1])
-	# mat.node_tree.links.new(edge_mix_color.outputs[0], emit.inputs[0])
-	# mat.node_tree.nodes["RGB"].outputs[0].default_value = (.8, .8, .8, 1)
 
 
 # Update material
@@ -452,7 +325,7 @@ def softbox_mat(light):
 def update_mat(self, context):
 
 	# Get the light
-	light = context.object #get_object(context, self.lightname)
+	light = context.object
 
 	# Softbox Light
 	if light.Lumiere.light_type == "Softbox":
@@ -609,16 +482,12 @@ def update_lamp(light):
 
 
 	rgb.outputs[0].default_value = light.Lumiere.light_color
-	# emit.inputs[0].default_value = light.Lumiere.light_color
 	ies.inputs[1].default_value = light.Lumiere.energy
-	# mat.node_tree.links.new(falloff.outputs[int(light.Lumiere.falloff_type)], emit.inputs[1])
 
 	#--EEVEE
 	falloff.inputs[0].default_value = light.Lumiere.energy
 	mat.energy = light.Lumiere.energy
 	mat.color = light.Lumiere.light_color[:3]
-	# mat.shadow_buffer_soft = mat.shadow_soft_size
-
 
 	#---IES Texture options
 	if light.Lumiere.material_menu == "IES":
@@ -629,28 +498,23 @@ def update_lamp(light):
 		else:
 			ies.ies = None
 
-	# #---Color for all the light
+	#---Color for all the light
 	if light.Lumiere.color_type == "Color":
-		# if emit.inputs[0].links:
-		# 	mat.node_tree.links.remove(emit.inputs[0].links[0])
-		## EEVEE doesn't work with nodes, use data color instead.
-		# mat.node_tree.links.new(rgb.outputs[0], emit.inputs[0])
-		# if falloff.inputs[0].links:
-		# 	mat.node_tree.links.remove(falloff.inputs[0].links[0])
-		#
+		if emit.inputs[0].links:
+			mat.node_tree.links.remove(emit.inputs[0].links[0])
 		if mix_color_text.inputs[2].links:
 			mat.node_tree.links.remove(mix_color_text.inputs[2].links[0])
 
 
 	#---SPOT / POINT
-	if light.Lumiere.light_type in ("Spot", "Point", "AREA"):
+	if light.Lumiere.light_type in ("Spot", "Point", "Area"):
 		mat.node_tree.links.new(ies_math.outputs[0], falloff.inputs[0])
 
 		if light.Lumiere.material_menu =="Texture" and light.Lumiere.img_name != "":
 			mat.node_tree.links.new(invert.outputs[0], mix_color_text.inputs[1])
 			mat.node_tree.links.new(mix_color_text.outputs[0], emit.inputs[0])
 			texture_mapping.scale[0] = texture_mapping.scale[1] = light.Lumiere.img_scale
-			if light.Lumiere.light_type == "AREA" :
+			if light.Lumiere.light_type == "Area" :
 				mat.node_tree.links.new(geometry.outputs[5], texture_mapping.inputs[0])
 				texture_mapping.translation[0] = texture_mapping.translation[1] = - ((light.Lumiere.img_scale - 1) * .5)
 			else:
@@ -668,11 +532,13 @@ def update_lamp(light):
 				mat.node_tree.links.remove(mix_color_text.inputs[1].links[0])
 
 		if light.Lumiere.color_type == "Gradient":
-			if light.Lumiere.light_type == "AREA" :
+			print("light.Lumiere.light_type: ", light.Lumiere.light_type)
+			if light.Lumiere.light_type == "Area" :
 				mat.node_tree.links.new(area_grad.outputs[1], colramp.inputs[0])
 			else:
 				mat.node_tree.links.new(gradient.outputs[1], colramp.inputs[0])
 			mat.node_tree.links.new(colramp.outputs[0], mix_color_text.inputs[2])
+			mat.node_tree.links.new(mix_color_text.outputs[0], emit.inputs[0])
 			## Color data are multiplied, reset it !
 			mat.color = (1,1,1)
 
@@ -693,11 +559,6 @@ def lamp_mat(light):
 
 #---Create a new material for cycles Engine.
 	bpy.context.scene.render.engine = 'CYCLES'
-	# light = bpy.context.scene.objects.active
-	# mat = get_mat_name()
-	# Si area light, utiliser Parametric > Mapping (Point x=0 / y=0 / z=0)
-	# Si autre, utiliser Normal > Mapping (Point x=0.5 / y=0.5 / z=0)
-
 	mat = bpy.data.materials.new(light.name)
 
 
@@ -820,8 +681,6 @@ def lamp_mat(light):
 	emit = light.data.node_tree.nodes.new(type = 'ShaderNodeEmission')
 	## EEVEE doesn't work with nodes, use data color instead.
 	emit.inputs[0].default_value = (1,1,1,1)
-	# emit.inputs[0].default_value = bpy.context.active_object.Lumiere.light_color
-	# light.data.node_tree.links.new(color.outputs[0], emit.inputs[0])
 	light.data.node_tree.links.new(falloff.outputs[0], emit.inputs[1])
 	emit.location = (180.0, 320.0)
 

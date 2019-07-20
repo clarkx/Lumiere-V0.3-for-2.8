@@ -22,9 +22,13 @@ def create_softbox(softbox_name = "Lumiere"):
 	# Set Lumiere as the active layer collection
 	bpy.context.view_layer.active_layer_collection = bpy.context.view_layer.layer_collection.children['Lumiere']
 	# Add a primitive plane in the active collection
-	bpy.ops.mesh.primitive_plane_add(size=2.0, calc_uvs=True, align='VIEW', enter_editmode=False, \
-									location=(0.0, 0.0, 0.0), rotation=(0.0, 0.0, 0.0))
-
+	bpy.ops.mesh.primitive_plane_add(size=2.0, calc_uvs=False, align='VIEW', enter_editmode=False, \
+									location=(0.0, 0.0, 0.0), rotation=(0.0, 0.0, 90.0))
+	bpy.ops.object.editmode_toggle()
+	bpy.ops.uv.smart_project(angle_limit=66, island_margin=0, user_area_weight=0)
+	bpy.ops.uv.reset()
+	bpy.ops.object.editmode_toggle()
+	# bpy.ops.mesh.uvs_rotate()
 	light = bpy.context.view_layer.objects.active
 	light.name = softbox_name
 	lumiere_collection = bpy.context.scene.collection.children['Lumiere']

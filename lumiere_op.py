@@ -34,8 +34,8 @@ from gpu_extras.batch import batch_for_shader
 
 class LUMIERE_OT_ray_operator(Operator):
 	bl_idname = "lumiere.ray_operator"
-	bl_label = "Draw operator"
-	bl_description = "Operator for drawing"
+	bl_label = "Lighting operator"
+	bl_description = "Click to enter in interactive lighting mode"
 	bl_options = {'REGISTER'}
 
 	def __init__(self):
@@ -64,7 +64,6 @@ class LUMIERE_OT_ray_operator(Operator):
 
 		if self.is_running == False:
 			self.is_running = True
-
 			self.draw_handle_2d = bpy.types.SpaceView3D.draw_handler_add(draw_callback_2d, args, "WINDOW", "POST_PIXEL")
 			self.draw_handle_3d = bpy.types.SpaceView3D.draw_handler_add(draw_callback_3d, args, "WINDOW", "POST_VIEW")
 
