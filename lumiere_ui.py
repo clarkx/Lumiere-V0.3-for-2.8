@@ -1,4 +1,5 @@
 import bpy
+import bmesh
 from bpy.types import Panel, Operator, Menu
 from bl_operators.presets import AddPresetBase
 
@@ -105,6 +106,33 @@ def update_softbox_rounding(self, context):
 	light.modifiers["Bevel"].width = light.Lumiere.softbox_rounding
 
 # -------------------------------------------------------------------- #
+def update_texture_scale(self, context):
+	"""Update the texture scale"""
+	light = context.active_object
+
+	if light.type == 'MESH':
+		me = light.data
+		bm = bmesh.new()
+		bm.from_mesh(me)
+
+		uv_layer = bm.loops.layers.uv.active
+
+		if light.Lumiere.lock_scale:
+			scale_x = scale_y = light.Lumiere.img_scale / 2 + .5
+		else:
+			scale_x = (light.Lumiere.img_scale * light.Lumiere.scale_x) / 2 + .5
+			scale_y = (light.Lumiere.img_scale * light.Lumiere.scale_y) / 2 + .5
+
+		for f in bm.faces:
+			f.loops[0][uv_layer].uv = (scale_x, scale_y)
+			f.loops[1][uv_layer].uv = (1-scale_x, scale_y)
+			f.loops[2][uv_layer].uv = (1-scale_x, 1-scale_y)
+			f.loops[3][uv_layer].uv = (scale_x, 1-scale_y)
+		bm.to_mesh(me)
+	else:
+		update_lamp(light)
+
+# -------------------------------------------------------------------- #
 def get_tilt(self):
 	"""Rotate the light on the Z axis"""
 	light = bpy.context.object
@@ -148,8 +176,6 @@ def update_ratio(self,context):
 	if light.Lumiere.ratio:
 		if light.type == 'MESH':
 			light.Lumiere.save_energy = (light.scale[0] * light.scale[1]) * light.Lumiere.energy
-		else:
-			light.Lumiere.save_energy =  (light.data.size * light.data.size_y) * light.Lumiere.energy
 
 # -------------------------------------------------------------------- #
 def update_lock_scale(self,context):
@@ -161,6 +187,8 @@ def update_lock_scale(self,context):
 	else:
 		light.scale[0] = light.Lumiere.scale_x
 		light.scale[1] = light.Lumiere.scale_y
+
+	update_texture_scale(self, context)
 
 # -------------------------------------------------------------------- #
 def update_scale_xy(self,context):
@@ -189,6 +217,7 @@ def update_scale(self,context):
 	if light.type == 'MESH':
 		light.scale[0] = light.Lumiere.scale_x
 		light.scale[1] = light.Lumiere.scale_y
+		update_texture_scale(self, context)
 	else:
 		light.data.size = light.Lumiere.scale_x
 		light.data.size_y = light.Lumiere.scale_y
@@ -421,9 +450,6 @@ class LumiereObj(bpy.types.PropertyGroup):
 	bbox_center : FloatVectorProperty(
 							   name="bbox_center",
 							   description="BoundingBox center of the targeted object.",
-							   # subtype = 'XYZ',
-							   # get=get_bbox,
-							   # set=set_bbox,
 							   )
 # -------------------------------------------------------------------- #
 ## Materials
@@ -442,7 +468,7 @@ class LumiereObj(bpy.types.PropertyGroup):
 
 #---List of color options
 	color_type : EnumProperty(name="Colors",
-							  	description="Colors options:\n"+
+								description="Colors options:\n"+
 								"\u2022 Gradient: Gradient color emission\n"+
 								"\u2022 Color: Single color emission\n"+
 								"\u2022 Reflector: No emission\n"+
@@ -453,18 +479,18 @@ class LumiereObj(bpy.types.PropertyGroup):
 
 #---List of color options
 	material_menu : EnumProperty(name="Material",
-							  	description="Material options:\n"+
+								description="Material options:\n"+
 								"\u2022 Color / Gradient: Base Color of the light\n"+
 								"\u2022 Texture: Image texture emission\n"+
 								"\u2022 IES: Real world lights intensity distribution\n"+
-								"\u2022 Falloff: Define how light intensity decreases over distance\n"+
+								"\u2022 Options: Define how light intensity decreases over distance and multiple important sample\n"+
 								"Selected",
 								items = {
 										("Color", "Color", "Color", "COLOR", 0),
 										("Texture", "Texture", "Texture", "FILE_IMAGE", 1),
-										("IES", "IES", "IES","PROP_CON", 2),
-										("Falloff", "Falloff", "Falloff","OUTLINER_OB_LIGHT", 3),
-										("Options", "Options", "Options","PREFERENCES", 4),
+										("IES", "IES", "IES","OUTLINER_OB_LIGHT", 2),
+										("Options", "Options", "Options","PREFERENCES", 3),
+										# ("Falloff", "Falloff", "Falloff","OUTLINER_OB_LIGHT", 3),
 										},
 								)
 
@@ -505,7 +531,7 @@ class LumiereObj(bpy.types.PropertyGroup):
 							  precision=2,
 							  subtype='NONE',
 							  unit='NONE',
-							  update=update_mat)
+							  update=update_texture_scale)
 
 #---Scale IES.
 	ies_scale : FloatProperty(
@@ -586,11 +612,6 @@ class LumiereObj(bpy.types.PropertyGroup):
 						update=update_lock_scale,
 						)
 
-#---Modal operator running
-	use_modal : BoolProperty(name = "Use modal",
-						description = "Modal operator running",
-						default=False,
-						)
 
 # -------------------------------------------------------------------- #
 # # Preset Menu
@@ -611,8 +632,7 @@ class POLL_PT_Lumiere:
 	def poll(cls, context):
 		if (context.active_object is not None):
 			if ("Lumiere" in str(context.active_object.users_collection)) \
-			and len(list(context.scene.collection.children['Lumiere'].objects)) > 0 : # \
-			# and context.view_layer.objects.active.type == 'MESH':
+			and len(list(context.scene.collection.children['Lumiere'].objects)) > 0 :
 				return context.view_layer.objects.active.name in context.scene.collection.children['Lumiere'].all_objects
 		else:
 			return False
@@ -643,7 +663,7 @@ class MAIN_PT_Lumiere(POLL_PT_Lumiere, Panel):
 
 		row = col.row(align=True)
 		row.enabled = False if (light.Lumiere.ratio \
-		and light.Lumiere.light_type in ("Softbox", "Area")) else True
+		and light.Lumiere.light_type in ("Softbox")) else True
 		row.prop(light.Lumiere, "energy", text="Energy", slider = True)
 		col.prop(light.Lumiere, "light_type", text="Light type")
 		col.prop(light.Lumiere, "reflect_angle", text="Position")
@@ -746,8 +766,9 @@ class MESH_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 		light = context.active_object
 		mat = get_mat_name()
 		colramp = mat.node_tree.nodes['ColorRamp']
+		img_texture = mat.node_tree.nodes["Image Texture"]
 		ies = mat.node_tree.nodes["IES Texture"]
-		bias = mat.node_tree.nodes["Texture invert"].inputs[0]
+		invert = mat.node_tree.nodes["Texture invert"].inputs[0]
 		col_reflector = mat.node_tree.nodes['Diffuse BSDF'].inputs[0]
 		falloff = mat.node_tree.nodes["Light Falloff"].inputs[1]
 
@@ -772,22 +793,23 @@ class MESH_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 			row.prop_search(light.Lumiere, "img_name", bpy.data, "images", text="")
 			row.operator("image.open",text='', icon='FILEBROWSER')
 			col.prop(light.Lumiere, "img_scale", text="Scale")
-			col.prop(bias, "default_value", text="Bias")
+			col.prop(invert, "default_value", text="Invert")
+			col.prop(img_texture, "extension", text="Repeat")
 			col.prop(light.Lumiere, "img_reflect_only", text="Reflection only")
+
 
 		elif light.Lumiere.material_menu == 'IES':
 			row = col.row(align=True)
-			row.prop_search(light.Lumiere, "ies_name", bpy.data, "texts", text="", icon="PROP_CON")
+			row.prop_search(light.Lumiere, "ies_name", bpy.data, "texts", text="", icon="OUTLINER_OB_LIGHT")
 			op = row.operator("text.open", text='', icon='FILEBROWSER')
 			op.filter_python = False
 			op.filter_text = False
 			op.filter_folder = False
 			col.prop(light.Lumiere, "ies_scale", text="Scale")
 			col.prop(light.Lumiere, "ies_reflect_only", text="Reflection only")
-		elif light.Lumiere.material_menu == 'Falloff':
+		else :
 			col.prop(light.Lumiere, "falloff_type", text="Falloff")
 			col.prop(falloff, "default_value", text="Smooth")
-		else:
 			col.prop(mat.cycles, "sample_as_light", text='MIS')
 		col = flow.column(align=True)
 		col.ui_units_x = 7
@@ -841,7 +863,6 @@ class LAMP_OPTIONS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 				row = col.row(align=True)
 				row.prop(light.Lumiere, "scale_y", text="Scale y")
 				row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_UNLOCKED')
-			col.prop(light.Lumiere, "ratio", text="Keep ratio")
 
 		elif light.data.type == "SPOT":
 			col.prop(light.data, "spot_size", text="Cone Size")
@@ -911,7 +932,7 @@ class LAMP_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 
 		elif light.Lumiere.material_menu == 'IES':
 			row = col.row(align=True)
-			row.prop_search(light.Lumiere, "ies_name", bpy.data, "texts", text="", icon="PROP_CON")
+			row.prop_search(light.Lumiere, "ies_name", bpy.data, "texts", text="", icon="OUTLINER_OB_LIGHT")
 			op = row.operator("text.open", text='', icon='FILEBROWSER')
 			op.filter_python = False
 			op.filter_text = False
@@ -926,10 +947,9 @@ class LAMP_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 				row.prop(light.Lumiere, "light_color", text="Color")
 			elif light.Lumiere.color_type == 'Gradient':
 				col.template_color_ramp(colramp, "color_ramp", expand=True)
-		elif light.Lumiere.material_menu == 'Falloff':
+		else :
 			col.prop(light.Lumiere, "falloff_type", text="Falloff")
 			col.prop(falloff, "default_value", text="Smooth")
-		else:
 			col.prop(light.data.cycles, "cast_shadow", text='Shadow')
 			col.prop(light.data.cycles, "use_multiple_importance_sampling", text='MIS')
 			col.prop(light.cycles_visibility, "diffuse", text='Diffuse')

@@ -31,14 +31,15 @@ class LUMIERE_GGT_gizmo(GizmoGroup):
 	@classmethod
 	def poll(cls, context):
 		light = context.object
-
-		if (light and (light.type == 'MESH' or 'LIGHT')) and ("Lumiere" in str(context.active_object.users_collection)) \
-		and len(list(context.scene.collection.children['Lumiere'].objects)) > 0:
-			return context.view_layer.objects.active.name in context.scene.collection.children['Lumiere'].all_objects
+		if (context.active_object is not None):
+			if ("Lumiere" in str(context.active_object.users_collection)) \
+			and len(list(context.scene.collection.children['Lumiere'].objects)) > 0 :
+				return context.view_layer.objects.active.name in context.scene.collection.children['Lumiere'].all_objects
+		else:
+			return False
 
 	def setup(self, context):
 		light = context.object
-
 		color_select = context.preferences.themes[0].view_3d.object_selected
 		color_active = context.preferences.themes[0].view_3d.object_active
 		scale_basis = 0.07

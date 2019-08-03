@@ -57,13 +57,13 @@ import shutil
 
 
 def register():
+	lumiere_gizmo.register()
 	lumiere_op.register()
 	lumiere_ui.register()
-	lumiere_gizmo.register()
 	print("Registered Lumiere")
 
 def unregister():
-	lumiere_gizmo.unregister()
 	lumiere_ui.unregister()
 	lumiere_op.unregister()
+	lumiere_gizmo.unregister()
 	print("Unregistered Lumiere")

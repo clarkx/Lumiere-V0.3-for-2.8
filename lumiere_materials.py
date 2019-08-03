@@ -136,13 +136,6 @@ def softbox_mat(light):
 	mat.node_tree.links.new(edge_power.outputs[0], edge_mult5.inputs[1])
 	edge_mult5.location = (-920.0, 440.0)
 
-#---Multiply Node 6
-	# edge_mult6 = mat.node_tree.nodes.new(type="ShaderNodeMath")
-	# edge_mult6.name = "Edges Multiply6"
-	# edge_mult6.operation = 'MULTIPLY'
-	# mat.node_tree.links.new(edge_mult5.outputs[0], edge_mult6.inputs[0])
-	# edge_mult6.location = (-920.0, 260.0)
-
 #---Mix Edges / Color for reflection only
 	refl_mix_color_edges = mat.node_tree.nodes.new(type = 'ShaderNodeMixRGB')
 	refl_mix_color_edges.name = "Reflect_Mix_Color_Edges"
@@ -172,7 +165,7 @@ def softbox_mat(light):
 #---Mapping Node
 	textmap = mat.node_tree.nodes.new(type="ShaderNodeMapping")
 	textmap.name = "Texture map"
-	mat.node_tree.links.new(coord.outputs[3], textmap.inputs[0])
+	mat.node_tree.links.new(coord.outputs[2], textmap.inputs[0])
 	textmap.vector_type = "TEXTURE"
 	textmap.location = (-1920, 160)
 
@@ -180,12 +173,13 @@ def softbox_mat(light):
 	texture = mat.node_tree.nodes.new(type = 'ShaderNodeTexImage')
 	mat.node_tree.links.new(textmap.outputs[0], texture.inputs[0])
 	texture.projection = 'FLAT'
-	texture.extension = 'CLIP'
+	texture.extension = 'REPEAT'
 	texture.location = (-1560, 160)
 
 #---Invert Node
 	texture_invert = mat.node_tree.nodes.new(type="ShaderNodeInvert")
 	texture_invert.name = "Texture invert"
+	texture_invert.inputs[0].default_value = 0
 	mat.node_tree.links.new(texture.outputs[0], texture_invert.inputs[1])
 	texture_invert.location = (-1280.0, 140.0)
 
@@ -243,7 +237,6 @@ def softbox_mat(light):
 	ies_math_mul = mat.node_tree.nodes.new(type = 'ShaderNodeMath')
 	ies_math_mul.name = "IES Math"
 	mat.node_tree.links.new(ies.outputs[0], ies_math_mul.inputs[0])
-	# mat.node_tree.links.new(ies.outputs[0], edge_mult6.inputs[1])
 	ies_math_mul.inputs[1].default_value = 0.01
 	ies_math_mul.operation = 'MULTIPLY'
 	ies_math_mul.location = (-1380, -200)
@@ -367,8 +360,6 @@ def update_mat(self, context):
 		if light.Lumiere.material_menu =="Texture":
 			if light.Lumiere.img_name != "" :
 				img_text.image = bpy.data.images[light.Lumiere.img_name]
-				texture_map.scale[1] = texture_map.scale[0] = light.Lumiere.img_scale
-				texture_map.translation[1] = texture_map.translation[0] = - light.Lumiere.img_scale / 2
 				mat.node_tree.links.new(invert.outputs[0], refl_mix_col_text.inputs[2])
 				if not light.Lumiere.img_reflect_only:
 					mat.node_tree.links.new(invert.outputs[0], mix_col_text.inputs[1])
@@ -461,8 +452,6 @@ def update_mat(self, context):
 """Update the material nodes of the blender lights"""
 def update_lamp(light):
 
-	# mat = bpy.data.lamps["LAMP_" + self.lightname]
-	# bpy.context.scene.render.engine = 'CYCLES'
 	mat = light.data
 
 	falloff = mat.node_tree.nodes["Light Falloff"]
@@ -532,7 +521,6 @@ def update_lamp(light):
 				mat.node_tree.links.remove(mix_color_text.inputs[1].links[0])
 
 		if light.Lumiere.color_type == "Gradient":
-			print("light.Lumiere.light_type: ", light.Lumiere.light_type)
 			if light.Lumiere.light_type == "Area" :
 				mat.node_tree.links.new(area_grad.outputs[1], colramp.inputs[0])
 			else:

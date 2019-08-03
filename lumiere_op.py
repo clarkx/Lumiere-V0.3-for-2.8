@@ -36,7 +36,7 @@ class LUMIERE_OT_ray_operator(Operator):
 	bl_idname = "lumiere.ray_operator"
 	bl_label = "Lighting operator"
 	bl_description = "Click to enter in interactive lighting mode"
-	bl_options = {'REGISTER'}
+	bl_options = {'REGISTER', 'UNDO'}
 
 	def __init__(self):
 		self.draw_handle_2d = None
@@ -51,6 +51,8 @@ class LUMIERE_OT_ray_operator(Operator):
 	def invoke(self, context, event):
 		print("LUMIERE RUNNING ...")
 		args = (self, context)
+		self.lumiere_context = context
+		self.lumiere_area = context.area
 		self.enable_cursor = context.space_data.overlay.show_cursor
 		self.enable_navigate = context.space_data.show_gizmo_navigate
 		self.enable_tool = context.space_data.show_gizmo_tool
@@ -61,7 +63,6 @@ class LUMIERE_OT_ray_operator(Operator):
 		return {"RUNNING_MODAL"}
 
 	def register_handlers(self, args, context):
-
 		if self.is_running == False:
 			self.is_running = True
 			self.draw_handle_2d = bpy.types.SpaceView3D.draw_handler_add(draw_callback_2d, args, "WINDOW", "POST_PIXEL")
@@ -70,33 +71,29 @@ class LUMIERE_OT_ray_operator(Operator):
 	def unregister_handlers(self, context):
 		bpy.types.SpaceView3D.draw_handler_remove(self.draw_handle_2d, "WINDOW")
 		bpy.types.SpaceView3D.draw_handler_remove(self.draw_handle_3d, "WINDOW")
-
 		self.draw_handle_2d = None
 		self.draw_handle_3d = None
-		self.draw_event	 = None
 
 		if context.view_layer.active_layer_collection.name == "Lumiere":
 			context.view_layer.active_layer_collection = context.view_layer.layer_collection
-			print("Collection: ", context.view_layer.active_layer_collection.name)
-
 
 	@classmethod
 	def poll(cls, context):
 		return context.area.type == 'VIEW_3D' and context.mode == 'OBJECT'
 
-
 	def modal(self, context, event):
-		# Hide 3d cursor
-		context.space_data.overlay.show_cursor = False
-		context.space_data.show_gizmo_navigate = False
-		context.space_data.show_gizmo_tool = False
-		context.space_data.overlay.show_relationship_lines = False
-
 		# Find the limit of the view3d region
 		check_region(self,context,event)
 
 		# Is the object selected is from Lumiere collection
 		check_light_selected(self, context)
+
+		# Hide 3d cursor
+		if self.in_view_3d:
+			context.space_data.overlay.show_cursor = False
+			context.space_data.show_gizmo_navigate = False
+			context.space_data.show_gizmo_tool = False
+			context.space_data.overlay.show_relationship_lines = False
 
 		try:
 			# Shift press
@@ -105,8 +102,13 @@ class LUMIERE_OT_ray_operator(Operator):
 			# Ctrl press
 			self.ctrl = True if event.ctrl else False
 
-			if event.type in {"ESC", "RIGHTMOUSE"}:
-				bpy.context.object.Lumiere.use_modal = False
+			if context.area != self.lumiere_area:
+				self.is_running = False
+				self.unregister_handlers(context)
+				print("LUMIERE CANCELLED ...")
+				return {'CANCELLED'}
+
+			if event.type in {"ESC", "RIGHTMOUSE"} :
 				print("LUMIERE EXIT ...")
 				self.unregister_handlers(context)
 
@@ -149,8 +151,6 @@ class LUMIERE_OT_ray_operator(Operator):
 						"Operation finished. (Check the console for more info)")
 
 			return {'FINISHED'}
-
-	print("LIGHT CREATED")
 
 	def finish(self):
 		return {"FINISHED"}

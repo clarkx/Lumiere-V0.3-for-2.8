@@ -25,7 +25,6 @@ def raycast_light(self, event, context, range, ray_max=1000.0):
 	rv3d = context.region_data
 	region = context.region
 	coord = (event.mouse_region_x, event.mouse_region_y)
-	light.Lumiere.use_modal = True
 
 #---Get the ray from the viewport and mouse
 	# Direction vector from the viewport to 2d coord

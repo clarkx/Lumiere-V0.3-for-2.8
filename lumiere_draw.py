@@ -27,7 +27,7 @@ def draw_callback_2d(self, context):
 	blf.draw(0, text)
 
 	# Create a circle using a tri fan
-	if self.light_selected:
+	if self.light_selected and (context.active_object is not None):
 		light = context.active_object
 		color = light.Lumiere.light_color
 		circle_hit = location_3d_to_region_2d(region, rv3d, light.Lumiere.hit)
@@ -53,7 +53,7 @@ def draw_callback_3d(self, context):
 	region = context.region
 	rv3d = context.region_data
 
-	if self.light_selected:
+	if self.light_selected and (context.active_object is not None):
 		light = context.active_object
 
 		# Draw a line between the light and the target point

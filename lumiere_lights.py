@@ -28,27 +28,21 @@ def create_softbox(softbox_name = "Lumiere"):
 	bpy.ops.uv.smart_project(angle_limit=66, island_margin=0, user_area_weight=0)
 	bpy.ops.uv.reset()
 	bpy.ops.object.editmode_toggle()
-	# bpy.ops.mesh.uvs_rotate()
 	light = bpy.context.view_layer.objects.active
 	light.name = softbox_name
 	lumiere_collection = bpy.context.scene.collection.children['Lumiere']
-	# lumiere_collection.objects.link(light)
 
 	# Select the light and make it active
 	bpy.ops.object.select_all(action='DESELECT')
 	light.select_set(state=True)
 	light_selected = True
 	bpy.context.view_layer.objects.active = bpy.data.objects[light.name]
-	# light.Lumiere.pointer = light
 
 #---Add the material
 	softbox_mat(light)
-	# mat_name, mat = get_mat_name()
 	mat = light.active_material
-	# light.active_material = mat
 
 #---Change the visibility
-	# light.Lumiere.lightname = light.data.name
 	light.display_type = 'WIRE'
 	light.show_transparent = True
 	light.show_wire = True
@@ -89,7 +83,6 @@ def create_lamp(name, type):
 	light.select_set(state=True)
 	light_selected = True
 	bpy.context.view_layer.objects.active = light
-	# light.Lumiere.pointer = light
 
 	# Create nodes
 	lamp_mat(light)
