@@ -37,7 +37,6 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 			return False
 
 	def setup(self, context):
-		print("SETUP")
 		light = context.object
 		context.area.tag_redraw()
 
@@ -65,7 +64,6 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 		#-- RANGE Gizmo
 		gz_range = self.gizmos.new("GIZMO_GT_arrow_3d")
 		gz_range.draw_style = 'BOX' #('NORMAL', 'CROSS', 'BOX', 'CONE')
-		# gz_range.target_set_prop('offset', light.Lumiere, 'range')
 		gz_range.scale_basis = .8
 		gz_range.color = color_active
 		gz_range.alpha = color_alpha
@@ -126,6 +124,13 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 		region = context.region
 
 		self.range_widget.target_set_prop('offset', light.Lumiere, 'range')
+
+		if light.type != "MESH":
+			self.scale_x_widget.hide = True
+			self.scale_widget.hide = True
+		else:
+			self.scale_x_widget.hide = False
+			self.scale_widget.hide = False
 
 		if light.Lumiere.lock_scale:
 			self.scale_x_widget.hide = True
