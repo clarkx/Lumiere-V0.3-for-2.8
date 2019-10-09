@@ -1,10 +1,17 @@
 import bpy
+import os
+import json
 import bgl
 import gpu
 from gpu_extras.batch import batch_for_shader
 from bpy_extras import view3d_utils
-from mathutils import Vector, Matrix, Quaternion, Euler
-
+from mathutils import (
+				Vector,
+				Matrix,
+				Quaternion,
+				Euler
+				)
+from textwrap import wrap
 from math import (
 	degrees,
 	radians,
@@ -43,7 +50,10 @@ def raycast_light(self, event, context, range, ray_max=1000.0):
 		else:
 			for dup in depsgraph.object_instances:
 				if dup.object.type == 'MESH':
-					if dup.object.name not in context.scene.collection.children['Lumiere'].all_objects:
+					if dup.object.name not in context.scene.collection.children['Lumiere'].all_objects or \
+					(dup.object.name in context.scene.collection.children['Lumiere'].all_objects and \
+					dup.object.Lumiere.color_type == 'Reflector'):
+
 						if dup.is_instance:
 							yield (dup.instance_object, dup.instance_object.matrix_world.copy())
 						else:
@@ -86,11 +96,18 @@ def raycast_light(self, event, context, range, ray_max=1000.0):
 				reflect_dir = (view_vector).reflect(normal)
 			elif light.Lumiere.reflect_angle == "1":
 				self.reflect_angle = "Normal"
-				reflect_dir = normal
+				if obj_trgt.name in context.scene.collection.children['Lumiere'].all_objects:
+					reflect_dir = -normal
+				else:
+					reflect_dir = normal
+
 			elif light.Lumiere.reflect_angle == "2":
 				self.reflect_angle = "Estimated"
-				local_bbox_center = 0.125 * sum((Vector(b) for b in obj_trgt.bound_box), Vector())
-				global_bbox_center = obj_trgt.matrix_world @ local_bbox_center
+				if light.Lumiere.auto_bbox_center:
+					local_bbox_center = 0.125 * sum((Vector(b) for b in obj_trgt.bound_box), Vector())
+					global_bbox_center = obj_trgt.matrix_world @ local_bbox_center
+				else:
+					global_bbox_center = Vector(light.Lumiere.bbox_center)
 				reflect_dir = (matrix_trgt @ hit) - global_bbox_center
 				reflect_dir.normalize()
 
@@ -195,3 +212,79 @@ def draw_shader(self, color, alpha, type, coords, size=1, indices=None):
 	except:
 		exc_type, exc_value, exc_traceback = sys.exc_info()
 		self.report({'ERROR'}, str(exc_value))
+
+# -------------------------------------------------------------------- #
+def export_props_light(self, context):
+	"""Export the current light data in JSON format"""
+	lumiere_dict = {}
+	light = context.active_object
+
+	lumiere_dict[light.name] = {}
+	lumiere_dict[light.name]['Lumiere'] = light['Lumiere'].to_dict()
+	lumiere_dict[light.name]['Lumiere']['light_type'] = light.Lumiere.light_type
+	lumiere_dict[light.name]['rotation'] = tuple(light.matrix_world.to_euler())
+	lumiere_dict[light.name]['scale'] = tuple(light.scale)
+	lumiere_dict[light.name]['location'] = tuple(light.location)
+	lumiere_dict[light.name]['Lumiere']['definition'] = list(wrap(light['Lumiere']['definition'], 50)) if "definition" in light['Lumiere'] else " "
+
+	# lumiere_dict[light.name]['group'] = {}
+	# for group in bpy.data.objects[light.name].users_group :
+	# 	# lumiere_dict[light.name]['group'] = {group.name : list(wrap(group["Lumiere"]["definition"], 50))} if "definition" in group["Lumiere"] else {group.name : " "}
+	# 	lumiere_dict[light.name]['group'].update({group.name : list(wrap(group['Lumiere']['definition'], 50))} if "definition" in group['Lumiere'] else {group.name : " "})
+
+	mat = get_mat_name()
+	if light.type == "LAMP":
+		lamp = get_lamp(context, light.data.name)
+		lumiere_dict[light.name]['smooth'] = light.data.node_tree.nodes["Light Falloff"].inputs[1].default_value
+	else:
+		lumiere_dict[light.name]['smooth'] = mat.node_tree.nodes['Light Falloff'].inputs[1].default_value
+
+	#---Gradient
+		if light.Lumiere.color_type in ("Linear", "Spherical"):
+			# lumiere_dict[light.name]['repeat'] = mat.node_tree.nodes['Math'].inputs[1].default_value
+			colramp = mat.node_tree.nodes['ColorRamp'].color_ramp
+			lumiere_dict[light.name]['gradient'] = {}
+			lumiere_dict[light.name]['interpolation'] = colramp.interpolation
+			for i in range(len(colramp.elements)):
+				lumiere_dict[light.name]['gradient'].update({colramp.elements[i].position: colramp.elements[i].color[:]})
+
+	return(lumiere_dict)
+
+# -------------------------------------------------------------------- #
+def get_mat_name():
+	"""Return the name of the material of the light"""
+	light = bpy.context.object
+	if bpy.context.object.type == 'MESH':
+		mat = light.active_material
+	else:
+		mat = bpy.data.lights[light.data.name].name
+
+	return(mat)
+
+# -------------------------------------------------------------------- #
+def get_lumiere_dict():
+	"""Return the file of the exported lights in a dict format"""
+
+	current_file_dir = os.path.dirname(__file__)
+	file_name = os.path.join(current_file_dir, "lumiere_dictionary.json")
+
+	#---Try to open the Lumiere export dictionary
+	try:
+		with open(file_name, 'r', encoding='utf-8') as file:
+			my_dict = json.loads(file.read())
+			file.close()
+	except :
+		# print("\n[Lumiere ERROR]\n")
+		# import traceback
+		# traceback.print_exc()
+		my_dict = {}
+	return(my_dict)
+
+# -------------------------------------------------------------------- #
+def update_lumiere_dict(my_dict):
+	"""Update the file of the exported lights"""
+	current_file_dir = os.path.dirname(__file__)
+
+	with open(current_file_dir + "\\" + "lumiere_dictionary.json", "w", encoding='utf-8') as file:
+		json.dump(my_dict, file, sort_keys=True, indent=4, ensure_ascii=False)
+	file.close()

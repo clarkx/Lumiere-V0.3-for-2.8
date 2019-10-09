@@ -15,8 +15,8 @@ from mathutils import (
 
 # Softbox
 #########################################################################################################
-"""Cycles material nodes for the Softbox light"""
 def softbox_mat(light):
+	"""Cycles material nodes for the Softbox light"""
 
 #---Create a new material for cycles Engine.
 	if bpy.context.scene.render.engine != 'CYCLES':
@@ -223,7 +223,7 @@ def softbox_mat(light):
 	mat.node_tree.links.new(coord.outputs[3], ies_map.inputs[0])
 	ies_map.vector_type = "TEXTURE"
 	ies_map.location = (-1920, -200)
-	ies_map.translation[2] = 0.5
+	ies_map.inputs[1].default_value[2] = 0.5
 
 #---Mapping File texture
 	ies = mat.node_tree.nodes.new(type="ShaderNodeTexIES")
@@ -314,8 +314,8 @@ def softbox_mat(light):
 
 # Update material
 #########################################################################################################
-"""Update the material nodes of the lights"""
 def update_mat(self, context):
+	"""Update the material nodes of the lights"""
 
 	# Get the light
 	light = context.object
@@ -373,7 +373,7 @@ def update_mat(self, context):
 
 	#---IES Texture options
 		elif light.Lumiere.material_menu == "IES":
-			ies_map.scale[2] = light.Lumiere.ies_scale
+			ies_map.inputs[3].default_value[2] = light.Lumiere.ies_scale
 			if light.Lumiere.ies_name != "" :
 				ies.ies = bpy.data.texts[light.Lumiere.ies_name]
 				mat.node_tree.links.new(ies_math.outputs[0], texture_emit.inputs[1])
@@ -391,27 +391,28 @@ def update_mat(self, context):
 		#---Linear Gradients
 		if light.Lumiere.color_type == "Linear":
 			gradient_type.gradient_type = "LINEAR"
+			mat.node_tree.links.new(coord.outputs[2], gradient_mapping.inputs[0])
 			mat.node_tree.links.new(gradient_type.outputs[0], colramp.inputs[0])
 			mat.node_tree.links.new(colramp.outputs[0], mix_col_edges.inputs[2])
 			mat.node_tree.links.new(colramp.outputs[0], refl_mix_col_edges.inputs[2])
 
 		#---Gradients links
-			gradient_mapping.rotation[2] = radians(0)
-			gradient_mapping.translation[0] = 0
-			gradient_mapping.translation[1] = 0
+			gradient_mapping.inputs[2].default_value[2] = radians(0)
+			gradient_mapping.inputs[1].default_value[0] = 0
+			gradient_mapping.inputs[1].default_value[1] = 0
 
 			if light.Lumiere.rotate_ninety:
-				gradient_mapping.rotation[2] = radians(90)
+				gradient_mapping.inputs[2].default_value[2] = radians(90)
+
 
 		#---Spherical Gradients
 		if light.Lumiere.color_type == "Spherical":
 			gradient_type.gradient_type = "SPHERICAL"
+			mat.node_tree.links.new(coord.outputs[3], gradient_mapping.inputs[0])
 			mat.node_tree.links.new(gradient_type.outputs[0], colramp.inputs[0])
 			mat.node_tree.links.new(colramp.outputs[0], mix_col_edges.inputs[2])
 			mat.node_tree.links.new(colramp.outputs[0], refl_mix_col_edges.inputs[2])
-			gradient_mapping.rotation[2] = radians(0)
-			gradient_mapping.translation[0] = 0.5
-			gradient_mapping.translation[1] = 0.5
+			gradient_mapping.inputs[2].default_value[2] = radians(0)
 
 
 		#---Color
@@ -465,10 +466,10 @@ def update_lamp(light):
 	area_grad = mat.node_tree.nodes["Dot Product"]
 	mix_color_text =  mat.node_tree.nodes["Mix_Color_Text"]
 	img_text = mat.node_tree.nodes['Image Texture']
-	invert = mat.node_tree.nodes['Invert']
+	invert = mat.node_tree.nodes['Texture invert']
 	coord = mat.node_tree.nodes['Texture Coordinate']
 	texture_mapping = mat.node_tree.nodes['Texture Mapping']
-
+	geometry = mat.node_tree.nodes['Geometry']
 
 	rgb.outputs[0].default_value = light.Lumiere.light_color
 	ies.inputs[1].default_value = light.Lumiere.energy
@@ -480,7 +481,7 @@ def update_lamp(light):
 
 	#---IES Texture options
 	if light.Lumiere.material_menu == "IES":
-		ies_map.scale[2] = light.Lumiere.ies_scale
+		ies_map.inputs[3].default_value[2] = light.Lumiere.ies_scale
 		if light.Lumiere.ies_name != "" :
 			ies.ies = bpy.data.texts[light.Lumiere.ies_name]
 			mat.node_tree.links.new(ies_math.outputs[0], falloff.inputs[0])
@@ -494,7 +495,6 @@ def update_lamp(light):
 		if mix_color_text.inputs[2].links:
 			mat.node_tree.links.remove(mix_color_text.inputs[2].links[0])
 
-
 	#---SPOT / POINT
 	if light.Lumiere.light_type in ("Spot", "Point", "Area"):
 		mat.node_tree.links.new(ies_math.outputs[0], falloff.inputs[0])
@@ -502,20 +502,20 @@ def update_lamp(light):
 		if light.Lumiere.material_menu =="Texture" and light.Lumiere.img_name != "":
 			mat.node_tree.links.new(invert.outputs[0], mix_color_text.inputs[1])
 			mat.node_tree.links.new(mix_color_text.outputs[0], emit.inputs[0])
-			texture_mapping.scale[0] = texture_mapping.scale[1] = light.Lumiere.img_scale
+			texture_mapping.inputs[3].default_value[0] = texture_mapping.inputs[3].default_value[1] = light.Lumiere.img_scale
 			if light.Lumiere.light_type == "Area" :
 				mat.node_tree.links.new(geometry.outputs[5], texture_mapping.inputs[0])
-				texture_mapping.translation[0] = texture_mapping.translation[1] = - ((light.Lumiere.img_scale - 1) * .5)
+				texture_mapping.inputs[1].default_value[0] = texture_mapping.inputs[1].default_value[1] = - ((light.Lumiere.img_scale - 1) * .5)
 			else:
 				mat.node_tree.links.new(coord.outputs[1], texture_mapping.inputs[0])
-				texture_mapping.translation[0] = .5
-				texture_mapping.translation[1] = .5
+				texture_mapping.inputs[1].default_value[0] = .5
+				texture_mapping.inputs[1].default_value[1] = .5
 
 			if light.Lumiere.img_name != "":
 				img_text.image = bpy.data.images[light.Lumiere.img_name]
 			invert.inputs[0].default_value = light.Lumiere.img_invert
 
-			mat.node_tree.links.new(coord.outputs[1], texture_mapping.inputs[0])
+			# mat.node_tree.links.new(coord.outputs[1], texture_mapping.inputs[0])
 		elif light.Lumiere.material_menu =="Texture" and light.Lumiere.img_name == "":
 			if mix_color_text.inputs[1].links:
 				mat.node_tree.links.remove(mix_color_text.inputs[1].links[0])
@@ -564,8 +564,8 @@ def lamp_mat(light):
 	light.data.node_tree.links.new(coord.outputs[1], textmap.inputs[0])
 	textmap.vector_type = "POINT"
 	textmap.name = "Texture Mapping"
-	textmap.translation[0] = 0.5
-	textmap.translation[1] = 0.5
+	textmap.inputs[1].default_value[0] = 0.5
+	textmap.inputs[1].default_value[1] = 0.5
 	textmap.location = (-1100.0, 800.0)
 
 #---Image Texture
@@ -578,6 +578,7 @@ def lamp_mat(light):
 
 #---Invert Node
 	invert = light.data.node_tree.nodes.new(type="ShaderNodeInvert")
+	invert.name = "Texture invert"
 	light.data.node_tree.links.new(texture.outputs[0], invert.inputs[1])
 	invert.location = (-460.0, 740.0)
 
@@ -624,7 +625,7 @@ def lamp_mat(light):
 	light.data.node_tree.links.new(coord.outputs[1], gradmap.inputs[0])
 	gradmap.vector_type = "TEXTURE"
 	gradmap.name = "Gradient Mapping"
-	gradmap.rotation[1] = radians(90)
+	gradmap.inputs[2].default_value[1] = radians(90)
 	gradmap.location = (-1100.0, 160.0)
 
 #---Gradient Node Quadratic
@@ -662,7 +663,6 @@ def lamp_mat(light):
 	mix_color_text.inputs[0].default_value = 1
 	mix_color_text.inputs['Color1'].default_value = [1,1,1,1]
 	mix_color_text.inputs['Color2'].default_value = [1,1,1,1]
-	light.data.node_tree.links.new(invert.outputs[0], mix_color_text.inputs[0])
 	mix_color_text.location = (-20, 440)
 
 #---Emission Node

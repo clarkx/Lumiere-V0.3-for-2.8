@@ -26,6 +26,7 @@ def draw_callback_2d(self, context):
 	blf.position(0, xt - blf.dimensions(0, text)[0] / 2, 40 , 0)
 	blf.draw(0, text)
 
+
 	# Create a circle using a tri fan
 	if self.light_selected and (context.active_object is not None):
 		light = context.active_object
@@ -39,10 +40,7 @@ def draw_callback_2d(self, context):
 
 		# Draw circle on boundingbox center of the targer object
 		if light.Lumiere.reflect_angle == "2" and light.parent:
-			local_bbox_center = 0.125 * sum((Vector(b) for b in light.parent.bound_box), Vector())
-			global_bbox_center = light.parent.matrix_world @ local_bbox_center
-
-			circle_hit = location_3d_to_region_2d(region, rv3d, global_bbox_center)
+			circle_hit = location_3d_to_region_2d(region, rv3d, light.Lumiere.bbox_center)
 			circle_radius = (circle_hit[0] + 3, circle_hit[1] + 3)
 			steps = 8
 			tris_coords, indices = draw_circle(circle_hit, circle_radius, steps)

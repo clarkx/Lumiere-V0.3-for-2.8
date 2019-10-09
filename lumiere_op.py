@@ -1,6 +1,8 @@
 import bpy
 from .lumiere_utils import (
 	raycast_light,
+	export_props_light,
+	get_lumiere_dict,
 	)
 from .lumiere_draw import (
 	draw_callback_2d,
@@ -10,6 +12,8 @@ from .lumiere_draw import (
 from .lumiere_lights import (
 	create_softbox,
 	)
+
+import enum
 
 from bpy.types import Operator
 
@@ -30,13 +34,85 @@ import bgl
 import blf
 import bmesh
 import gpu
+import os
 from gpu_extras.batch import batch_for_shader
+import json
+
+# -------------------------------------------------------------------- #
+class LUMIERE_OT_export_light(Operator):
+	"""Export the current light data in JSON format"""
+
+	bl_idname = "object.export_light"
+	bl_label = "Export light"
+
+
+	def execute(self, context):
+		current_file_path = __file__
+		current_file_dir = os.path.dirname(__file__)
+		light = context.active_object
+
+	#---Try to open the Lumiere export dictionary
+		try:
+			with open(current_file_dir + "\\" + "lumiere_dictionary.json", 'r', encoding='utf-8') as file:
+				my_dict = json.load(file)
+				file.close()
+		except Exception:
+			print("Warning, dict empty, creating a new one.")
+			my_dict = {}
+
+		lumiere_dict = export_props_light(self, context)
+
+		my_dict.update(lumiere_dict)
+
+		with open(current_file_dir + "\\" + "lumiere_dictionary.json", "w", encoding='utf-8') as file:
+			json.dump(my_dict, file, sort_keys=True, indent=4, ensure_ascii=False)
+
+		file.close()
+		message = "Light exported"
+		self.report({'INFO'}, message)
+		return {'FINISHED'}
+
+
+# -------------------------------------------------------------------- #
+# class LUMIERE_OT_RemoveLightItem(bpy.types.Operator):
+# 	bl_idname = "scene.remove_light_item"
+# 	bl_label = "Remove Light Entry"
+#
+# 	light = bpy.props.StringProperty()
+#
+# 	@classmethod
+# 	def poll(cls, context):
+# 		return context.scene.Lumiere_all_lights_list_index >= 0
+#
+# 	def execute(self, context):
+# 		settings = context.scene.Lumiere_all_lights_list
+# 		settings.remove(context.scene.Lumiere_all_lights_list_index)
+# 		context.scene.Lumiere_all_lights_list_index -= 1
+# 		self.my_dict = get_lumiere_dict(self, context)
+# 		self.report({'INFO'}, "Light " + self.light + " deleted from the list")
+# 		self.my_dict.pop(self.light, None)
+# 		update_lumiere_dict(self, context, self.my_dict)
+#
+# 		return {'FINISHED'}
+# -------------------------------------------------------------------- #
+
+class OpStatus(object):
+	"""Operator status : Running or not"""
+	running = False
+
+	def __init__(cls, value):
+		cls.value = running
 
 class LUMIERE_OT_ray_operator(Operator):
 	bl_idname = "lumiere.ray_operator"
 	bl_label = "Lighting operator"
 	bl_description = "Click to enter in interactive lighting mode"
 	bl_options = {'REGISTER', 'UNDO'}
+
+
+	@classmethod
+	def poll(cls, context):
+		return context.area.type == 'VIEW_3D' and context.mode == 'OBJECT'
 
 	def __init__(self):
 		self.draw_handle_2d = None
@@ -45,14 +121,15 @@ class LUMIERE_OT_ray_operator(Operator):
 		self.shift = False
 		self.ctrl = False
 		self.lmb = False
-		self.create_collection()
 		self.is_running = False
+		self.create_collection()
 
 	def invoke(self, context, event):
 		print("LUMIERE RUNNING ...")
 		args = (self, context)
 		self.lumiere_context = context
-		self.lumiere_area = context.area
+		if context.space_data.type == 'VIEW_3D':
+			self.lumiere_area = context.area
 		self.enable_cursor = context.space_data.overlay.show_cursor
 		self.enable_navigate = context.space_data.show_gizmo_navigate
 		self.enable_tool = context.space_data.show_gizmo_tool
@@ -64,6 +141,7 @@ class LUMIERE_OT_ray_operator(Operator):
 
 	def register_handlers(self, args, context):
 		if self.is_running == False:
+			OpStatus.running = True
 			self.is_running = True
 			self.draw_handle_2d = bpy.types.SpaceView3D.draw_handler_add(draw_callback_2d, args, "WINDOW", "POST_PIXEL")
 			self.draw_handle_3d = bpy.types.SpaceView3D.draw_handler_add(draw_callback_3d, args, "WINDOW", "POST_VIEW")
@@ -73,13 +151,10 @@ class LUMIERE_OT_ray_operator(Operator):
 		bpy.types.SpaceView3D.draw_handler_remove(self.draw_handle_3d, "WINDOW")
 		self.draw_handle_2d = None
 		self.draw_handle_3d = None
+		OpStatus.running = False
 
 		if context.view_layer.active_layer_collection.name == "Lumiere":
 			context.view_layer.active_layer_collection = context.view_layer.layer_collection
-
-	@classmethod
-	def poll(cls, context):
-		return context.area.type == 'VIEW_3D' and context.mode == 'OBJECT'
 
 	def modal(self, context, event):
 		# Find the limit of the view3d region
@@ -198,11 +273,22 @@ def check_light_selected(self, context):
 			else:
 				self.light_selected = False
 
-#
+
+# -------------------------------------------------------------------- #
+## Register
+
+classes = [
+	LUMIERE_OT_export_light,
+	LUMIERE_OT_ray_operator,
+	]
+
 def register():
 	from bpy.utils import register_class
-	bpy.utils.register_class(LUMIERE_OT_ray_operator)
+	for cls in classes:
+		print("CLASSE: ", cls)
+		register_class(cls)
 
 def unregister():
 	from bpy.utils import unregister_class
-	bpy.utils.unregister_class(LUMIERE_OT_ray_operator)
+	for cls in reversed(classes):
+		unregister_class(cls)

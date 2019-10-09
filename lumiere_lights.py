@@ -65,7 +65,6 @@ def create_softbox(softbox_name = "Lumiere"):
 #########################################################################################################
 """Create a blender light"""
 def create_lamp(name, type):
-	print("TYPE: ", type.upper())
 	# Create the lamp
 	light_data = bpy.data.lights.new(name = name, type = type.upper())
 	light = bpy.data.objects.new(name = name, object_data = light_data)
@@ -95,7 +94,6 @@ def get_mat_name():
 	"""Return the name of the material of the light"""
 	light = bpy.context.object
 	mat_name = light.name
-	print("MAT NAME: ", mat_name)
 	if bpy.context.object.type == 'MESH':
 		mat = light.active_material
 	else:
