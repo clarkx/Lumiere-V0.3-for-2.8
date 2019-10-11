@@ -42,6 +42,7 @@ def raycast_light(self, event, context, range, ray_max=1000.0):
 	ray_target = ray_origin + view_vector
 
 	depsgraph =  context.evaluated_depsgraph_get()
+	
 #---Select the targeted object
 	def visible_objects_and_duplis():
 		if light.Lumiere.target :
@@ -52,7 +53,7 @@ def raycast_light(self, event, context, range, ray_max=1000.0):
 				if dup.object.type == 'MESH':
 					if dup.object.name not in context.scene.collection.children['Lumiere'].all_objects or \
 					(dup.object.name in context.scene.collection.children['Lumiere'].all_objects and \
-					dup.object.Lumiere.color_type == 'Reflector'):
+					(dup.object.Lumiere.color_type == 'Reflector' and dup.object.data.name != light.data.name)):
 
 						if dup.is_instance:
 							yield (dup.instance_object, dup.instance_object.matrix_world.copy())
