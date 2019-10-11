@@ -127,7 +127,7 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 
 		if light.type != "MESH":
 			self.scale_x_widget.hide = True
-			self.scale_widget.hide = True
+			# self.scale_widget.hide = True
 		else:
 			self.scale_x_widget.hide = False
 			self.scale_widget.hide = False
@@ -136,8 +136,9 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 			self.scale_x_widget.hide = True
 			self.scale_widget.target_set_prop('offset', light.Lumiere, 'scale_xy')
 		else:
-			self.scale_x_widget.hide = False
-			self.scale_widget.target_set_prop('offset', light.Lumiere, 'scale_y')
+			if light.type == 'MESH' or (light.data.type == "AREA" and light.data.shape not in ('SQUARE', 'DISK')):
+				self.scale_x_widget.hide = False
+				self.scale_widget.target_set_prop('offset', light.Lumiere, 'scale_y')
 
 		mat_hit = Matrix.Translation((light.Lumiere.hit))
 		mat_rot = light.rotation_euler.to_matrix()
