@@ -19,6 +19,11 @@ from bpy.types import (
 	)
 from math import sqrt
 
+
+
+
+# -------------------------------------------------------------------- #
+
 class LUMIERE_GGT_3dgizmo(GizmoGroup):
 	bl_idname = "LUMIERE_GGT_3dgizmo"
 	bl_label = "Lumiere widget"
@@ -48,6 +53,7 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 		alpha_highlight = 1
 		line_width = 5
 		line_length = .4
+
 
 		#-- HIT Gizmo
 		gz_hit = self.gizmos.new("GIZMO_GT_move_3d")
@@ -82,7 +88,7 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 		gz_scale.color_highlight = color_select
 		gz_scale.alpha_highlight = alpha_highlight
 		gz_scale.line_width = line_width
-		self.scale_widget = gz_scale
+		self.scale_xy_widget = gz_scale
 
 		#-- SCALE_X Gizmo
 		gz_scale_x = self.gizmos.new("GIZMO_GT_arrow_3d")
@@ -118,100 +124,130 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 		gz_bbox_z.length  = line_length
 		self.bbox_z_widget = gz_bbox_z
 
+		#-- SPOT CONE Gizmo
+		spot_circle = self.gizmos.new("GIZMO_GT_dial_3d")
+		spot_circle.draw_options={"ANGLE_START_Y", "ANGLE_VALUE"}
+		# spot_circle.target_set_prop('offset', light.data, 'spot_size')
+		spot_circle.scale_basis = .4 #light.data.spot_size
+		spot_circle.use_draw_value = True
+		spot_circle.color = color_active
+		spot_circle.alpha = color_alpha
+		spot_circle.color_highlight = color_select
+		spot_circle.alpha_highlight = alpha_highlight
+		spot_circle.line_width = 2
+		self.spot_circle_widget = spot_circle
+
 
 	def draw_prepare(self, context):
+		preferences = context.preferences
+		addon_prefs = preferences.addons[__package__].preferences
+
+
 		light = context.object
 		region = context.region
-
-		self.range_widget.target_set_prop('offset', light.Lumiere, 'range')
-
-		if light.type != "MESH":
-			self.scale_x_widget.hide = True
-			# self.scale_widget.hide = True
-		else:
-			self.scale_x_widget.hide = False
-			self.scale_widget.hide = False
-
-		if light.Lumiere.lock_scale:
-			self.scale_x_widget.hide = True
-			self.scale_widget.target_set_prop('offset', light.Lumiere, 'scale_xy')
-		else:
-			if light.type == 'MESH' or (light.data.type == "AREA" and light.data.shape not in ('SQUARE', 'DISK')):
-				self.scale_x_widget.hide = False
-				self.scale_widget.target_set_prop('offset', light.Lumiere, 'scale_y')
-
 		mat_hit = Matrix.Translation((light.Lumiere.hit))
 		mat_rot = light.rotation_euler.to_matrix()
 		hit_matrix = mat_hit @ mat_rot.to_4x4()
 		mat_rot_x = Matrix.Rotation(radians(90.0), 4, 'Y')
 		mat_rot_y = Matrix.Rotation(radians(90.0), 4, 'X')
 
-		self.hit_widget.matrix_basis = hit_matrix.normalized()
-		self.range_widget.matrix_basis = hit_matrix.normalized()
-		self.scale_widget.matrix_basis = light.matrix_world.normalized() @ mat_rot_y
-		self.scale_x_widget.matrix_basis = light.matrix_world.normalized() @ mat_rot_x
+		self.range_widget.target_set_prop('offset', light.Lumiere, 'range')
 
-		if light.Lumiere.reflect_angle == "2" and OpStatus.running == False: #"Estimated"
-			mat_bbox = Matrix.Translation((light.Lumiere.bbox_center))
-			mat_bbox_x = Matrix.Rotation(radians(90.0), 4, 'Y')
-			mat_bbox_y = Matrix.Rotation(radians(-90.0), 4, 'X')
 
-			if light.Lumiere.auto_bbox_center:
-				self.bbox_circle_widget.hide = True
-				self.bbox_x_widget.hide = True
-				self.bbox_y_widget.hide = True
-				self.bbox_z_widget.hide = True
-			else:
+		if OpStatus.running == True or addon_prefs.gizmos == False:
+			self.hit_widget.hide = True
+			self.range_widget.hide = True
+			self.scale_xy_widget.hide = True
+			self.scale_x_widget.hide = True
+			self.bbox_circle_widget.hide = True
+			self.bbox_x_widget.hide = True
+			self.bbox_y_widget.hide = True
+			self.bbox_z_widget.hide = True
+			self.spot_circle_widget.hide = True
+		else:
+			self.hit_widget.hide = False
+			self.range_widget.hide = False
+			self.spot_circle_widget.hide = True
+			self.scale_xy_widget.hide = False
+			self.scale_x_widget.hide = True
+			self.scale_xy_widget.target_set_prop('offset', light.Lumiere, 'scale_xy')
+
+			if (light.type == 'MESH' and not light.Lumiere.lock_scale) or \
+				((light.type == 'LIGHT' and light.data.type == "AREA" and \
+				light.data.shape not in ('SQUARE', 'DISK') and not light.Lumiere.lock_scale)):
+				self.scale_xy_widget.hide = False
+				self.scale_x_widget.hide = False
+				self.scale_x_widget.target_set_prop('offset', light.Lumiere, 'scale_x')
+				self.scale_xy_widget.target_set_prop('offset', light.Lumiere, 'scale_y')
+
+			elif light.type == 'LIGHT' and light.data.type == "SPOT":
+				self.spot_circle_widget.hide = False
+				self.spot_circle_widget.target_set_prop('offset', light.data, 'spot_size')
+				self.spot_circle_widget.matrix_basis = hit_matrix.normalized()
+
+
+			self.hit_widget.matrix_basis = hit_matrix.normalized()
+			self.range_widget.matrix_basis = hit_matrix.normalized()
+			self.scale_xy_widget.matrix_basis = light.matrix_world.normalized() @ mat_rot_y
+			self.scale_x_widget.matrix_basis = light.matrix_world.normalized() @ mat_rot_x
+
+			if light.Lumiere.reflect_angle == "2" and not light.Lumiere.auto_bbox_center: #"Estimated"
+				mat_bbox = Matrix.Translation((light.Lumiere.bbox_center))
+				mat_bbox_x = Matrix.Rotation(radians(90.0), 4, 'Y')
+				mat_bbox_y = Matrix.Rotation(radians(-90.0), 4, 'X')
+
 				self.bbox_circle_widget.hide = False
 				self.bbox_x_widget.hide = False
 				self.bbox_y_widget.hide = False
 				self.bbox_z_widget.hide = False
 
-			def get_bbox_x():
-				light = bpy.context.object
-				return light.Lumiere.bbox_center[0]
+				def get_bbox_x():
+					light = bpy.context.object
+					return light.Lumiere.bbox_center[0]
 
-			def set_bbox_x(bbox_x):
-				light = bpy.context.object
-				global_bbox_center = light.Lumiere.bbox_center
-				global_bbox_center[0] = bbox_x
+				def set_bbox_x(bbox_x):
+					light = bpy.context.object
+					global_bbox_center = light.Lumiere.bbox_center
+					global_bbox_center[0] = bbox_x
 
-			def get_bbox_y():
-				light = bpy.context.object
-				return light.Lumiere.bbox_center[1]
+				def get_bbox_y():
+					light = bpy.context.object
+					return light.Lumiere.bbox_center[1]
 
-			def set_bbox_y(bbox_y):
-				light = bpy.context.object
-				global_bbox_center = light.Lumiere.bbox_center
-				global_bbox_center[1] = bbox_y
+				def set_bbox_y(bbox_y):
+					light = bpy.context.object
+					global_bbox_center = light.Lumiere.bbox_center
+					global_bbox_center[1] = bbox_y
 
-			def get_bbox_z():
-				light = bpy.context.object
-				return light.Lumiere.bbox_center[2]
+				def get_bbox_z():
+					light = bpy.context.object
+					return light.Lumiere.bbox_center[2]
 
-			def set_bbox_z(bbox_z):
-				light = bpy.context.object
-				global_bbox_center = light.Lumiere.bbox_center
-				global_bbox_center[2] = bbox_z
+				def set_bbox_z(bbox_z):
+					light = bpy.context.object
+					global_bbox_center = light.Lumiere.bbox_center
+					global_bbox_center[2] = bbox_z
 
-			self.bbox_circle_widget.matrix_basis = mat_bbox.normalized()
+				self.bbox_circle_widget.matrix_basis = mat_bbox.normalized()
 
-			self.bbox_x_widget.target_set_handler('offset', get=get_bbox_x, set=set_bbox_x)
-			self.bbox_x_widget.matrix_basis = mat_bbox.normalized() @ mat_bbox_x
-			self.bbox_x_widget.matrix_basis.col[3][0] = light.Lumiere.bbox_center[0] - self.bbox_x_widget.target_get_value("offset")[0]
+				self.bbox_x_widget.target_set_handler('offset', get=get_bbox_x, set=set_bbox_x)
+				self.bbox_x_widget.matrix_basis = mat_bbox.normalized() @ mat_bbox_x
+				self.bbox_x_widget.matrix_basis.col[3][0] = light.Lumiere.bbox_center[0] - self.bbox_x_widget.target_get_value("offset")[0]
 
-			self.bbox_y_widget.target_set_handler('offset', get=get_bbox_y, set=set_bbox_y)
-			self.bbox_y_widget.matrix_basis = mat_bbox.normalized() @ mat_bbox_y
-			self.bbox_y_widget.matrix_basis.col[3][1] = light.Lumiere.bbox_center[1] - self.bbox_y_widget.target_get_value("offset")[0]
+				self.bbox_y_widget.target_set_handler('offset', get=get_bbox_y, set=set_bbox_y)
+				self.bbox_y_widget.matrix_basis = mat_bbox.normalized() @ mat_bbox_y
+				self.bbox_y_widget.matrix_basis.col[3][1] = light.Lumiere.bbox_center[1] - self.bbox_y_widget.target_get_value("offset")[0]
 
-			self.bbox_z_widget.target_set_handler('offset', get=get_bbox_z, set=set_bbox_z)
-			self.bbox_z_widget.matrix_basis = mat_bbox.normalized()
-			self.bbox_z_widget.matrix_basis.col[3][2] = light.Lumiere.bbox_center[2] - self.bbox_z_widget.target_get_value("offset")[0]
-		else:
-			self.bbox_circle_widget.hide = True
-			self.bbox_x_widget.hide = True
-			self.bbox_y_widget.hide = True
-			self.bbox_z_widget.hide = True
+				self.bbox_z_widget.target_set_handler('offset', get=get_bbox_z, set=set_bbox_z)
+				self.bbox_z_widget.matrix_basis = mat_bbox.normalized()
+				self.bbox_z_widget.matrix_basis.col[3][2] = light.Lumiere.bbox_center[2] - self.bbox_z_widget.target_get_value("offset")[0]
+			else:
+
+				self.bbox_circle_widget.hide = True
+				self.bbox_x_widget.hide = True
+				self.bbox_y_widget.hide = True
+				self.bbox_z_widget.hide = True
+
 # Register
 # -------------------------------------------------------------------- #
 #
@@ -223,7 +259,6 @@ classes = [
 def register():
 	from bpy.utils import register_class
 	for cls in classes:
-		print("CLASSE: ", cls)
 		register_class(cls)
 
 def unregister():

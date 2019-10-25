@@ -2,8 +2,11 @@ import bpy
 from .lumiere_utils import (
 	raycast_light,
 	export_props_light,
+	export_props_group,
 	get_lumiere_dict,
+	update_lumiere_dict,
 	)
+
 from .lumiere_draw import (
 	draw_callback_2d,
 	draw_callback_3d,
@@ -13,8 +16,16 @@ from .lumiere_lights import (
 	create_softbox,
 	)
 
-import enum
+from .lumiere_materials import (
+	update_mat,
+	)
+from .lumiere_lights import (
+	create_softbox,
+	create_lamp,
+	)
 
+import enum
+from collections import Counter
 from bpy.types import Operator
 
 from mathutils import (
@@ -30,13 +41,89 @@ from math import (
 	pi,
 	)
 
-import bgl
-import blf
-import bmesh
-import gpu
 import os
-from gpu_extras.batch import batch_for_shader
 import json
+
+# -------------------------------------------------------------------- #
+# Preset Menu
+class LUMIERE_OT_PresetPopup(Operator):
+	'''Export/Import Preset'''
+	bl_idname = "lumiere.preset_popup"
+	bl_label = "Export/Import Preset"
+
+	group: bpy.props.StringProperty()
+
+	def draw_props(self, labelname):
+		layout = self.layout
+		c = layout.column()
+		row = c.row()
+		split = row.split(factor=0.25)
+		c = split.column()
+		c.label(text=labelname)
+		split = split.split()
+		self.column = split.column()
+
+	def execute(self, context):
+		try:
+			select_item = scene.Lumiere_lights_list[scene.Lumiere_lights_list_index].name
+			self.import_light(context, select_item)
+		except:
+			exc_type, exc_value, exc_traceback = sys.exc_info()
+			self.report({'ERROR'}, str(exc_value))
+
+		return {"FINISHED"}
+
+	def check(self, context):
+		return True
+
+	def draw(self, context):
+		scene = context.scene
+		light = context.active_object
+		layout = self.layout
+
+	#---Export individual light
+		col = layout.column()
+		row = col.row()
+		if len(context.scene.Lumiere_lights_list) > 0:
+			row.template_list("ALL_LIGHTS_UL_list", "",context.scene, "Lumiere_lights_list", context.scene, "Lumiere_lights_list_index", rows=2)
+			col2 = row.column(align=True)
+			op_add = col2.operator("custom.list_action", emboss=False, icon='IMPORT', text="")
+			op_add.action = 'IMPORT'
+			op_add.arg = "Import to scene"
+			row = col2.row(align=True)
+			op_del = row.operator("custom.list_action", emboss=False, icon='REMOVE', text="")
+			op_del.action = 'REMOVE'
+			op_del.arg = "Remove from list"
+
+		if (context.active_object is not None):
+			if ("Lumiere" in str(context.active_object.users_collection)) \
+			and len(list(context.scene.collection.children['Lumiere'].objects)) > 0 and context.view_layer.objects.active.name in context.scene.collection.children['Lumiere'].all_objects :
+
+				row = col.row()
+				if len(context.view_layer.objects.selected) > 1:
+					row.prop(self, "group", text="Group", expand=False)
+					op = row.operator("object.export_light", text ="", emboss=False, icon="ADD")
+					op.name = self.group
+				else:
+					row.prop(light, "name", text="Light", expand=False)
+					op = row.operator("object.export_light", text ="", emboss=False, icon="ADD")
+					op.name = light.name
+
+	def invoke(self, context, event):
+		context.scene.Lumiere_lights_list.clear()
+		my_dict = get_lumiere_dict()
+
+		for key, value in my_dict.items():
+		#---Fill the items for the light
+			item = context.scene.Lumiere_lights_list.add()
+			if key.startswith("Group_"):
+				item.name = key[6:]
+				item.num = str(len(value))
+			else:
+				item.name = key
+				item.num = "1"
+
+		return context.window_manager.invoke_popup(self)
 
 # -------------------------------------------------------------------- #
 class LUMIERE_OT_export_light(Operator):
@@ -45,11 +132,13 @@ class LUMIERE_OT_export_light(Operator):
 	bl_idname = "object.export_light"
 	bl_label = "Export light"
 
+	name : bpy.props.StringProperty()
 
 	def execute(self, context):
 		current_file_path = __file__
 		current_file_dir = os.path.dirname(__file__)
 		light = context.active_object
+		light_selected = []
 
 	#---Try to open the Lumiere export dictionary
 		try:
@@ -60,7 +149,15 @@ class LUMIERE_OT_export_light(Operator):
 			print("Warning, dict empty, creating a new one.")
 			my_dict = {}
 
-		lumiere_dict = export_props_light(self, context)
+		# list(context.scene.collection.children['Lumiere'].objects)
+		for obj in context.view_layer.objects.selected:
+			if obj in list(context.scene.collection.children['Lumiere'].objects):
+				light_selected.append(obj)
+
+		if len(light_selected) > 1:
+			lumiere_dict = export_props_group(self, context, self.name, light_selected)
+		else:
+			lumiere_dict = export_props_light(self, context, light)
 
 		my_dict.update(lumiere_dict)
 
@@ -74,28 +171,94 @@ class LUMIERE_OT_export_light(Operator):
 
 
 # -------------------------------------------------------------------- #
-# class LUMIERE_OT_RemoveLightItem(bpy.types.Operator):
-# 	bl_idname = "scene.remove_light_item"
-# 	bl_label = "Remove Light Entry"
-#
-# 	light = bpy.props.StringProperty()
-#
-# 	@classmethod
-# 	def poll(cls, context):
-# 		return context.scene.Lumiere_all_lights_list_index >= 0
-#
-# 	def execute(self, context):
-# 		settings = context.scene.Lumiere_all_lights_list
-# 		settings.remove(context.scene.Lumiere_all_lights_list_index)
-# 		context.scene.Lumiere_all_lights_list_index -= 1
-# 		self.my_dict = get_lumiere_dict(self, context)
-# 		self.report({'INFO'}, "Light " + self.light + " deleted from the list")
-# 		self.my_dict.pop(self.light, None)
-# 		update_lumiere_dict(self, context, self.my_dict)
-#
-# 		return {'FINISHED'}
-# -------------------------------------------------------------------- #
+class PRESET_OT_actions(Operator):
+	"""Add or remove preset from ights"""
+	bl_idname = "custom.list_action"
+	bl_label = "Import/Remove"
+	bl_description = "Import or remove from the list"
+	bl_options = {'REGISTER'}
 
+	action: bpy.props.EnumProperty(
+		description="Import/Export options.\nSelected",
+		items=(
+			('REMOVE', "Remove", ""),
+			('IMPORT', "Import", "")))
+
+
+	arg: bpy.props.StringProperty()
+
+
+	@classmethod
+	def description(cls, context, props):
+		return "Preset: " + props.arg
+
+	def import_light(self, context):
+		scn = context.scene
+		list = context.scene.Lumiere_lights_list
+		list_index = context.scene.Lumiere_lights_list_index
+
+		if int(list[list_index].num) > 1:
+			light_from_dict = self.my_dict["Group_" + scn.Lumiere_lights_list[list_index].name]
+			for light in light_from_dict:
+				self.create_light(context, light_from_dict[light], light)
+		else:
+			light_from_dict = self.my_dict[scn.Lumiere_lights_list[list_index].name]
+			self.create_light(context, light_from_dict, scn.Lumiere_lights_list[list_index].name)
+
+
+	def create_light(self, context, light_from_dict, light_name):
+		scn = context.scene
+		list_index = context.scene.Lumiere_lights_list_index
+
+		if light_from_dict["Lumiere"]["light_type"] == "Softbox":
+			light = create_softbox(light_name)
+		else:
+			light = create_lamp(light_name, light_from_dict["Lumiere"]["light_type"])
+
+		light["Lumiere"] = light_from_dict["Lumiere"]
+		light.location = light_from_dict["location"]
+		light.rotation_euler = light_from_dict["rotation"]
+		light.scale = light_from_dict["scale"]
+		light.Lumiere.light_type = light_from_dict["Lumiere"]["light_type"]
+		light.Lumiere.scale_x = light.Lumiere.scale_x
+
+		update_mat(self, context)
+
+
+	def remove_light(self, context):
+		list = context.scene.Lumiere_lights_list
+		list_index = context.scene.Lumiere_lights_list_index
+
+		if int(list[list_index].num) > 1:
+			self.report({'INFO'}, "Group " + list[list_index].name + " deleted from the list")
+			self.my_dict.pop("Group_"+list[list_index].name, None)
+		else:
+			self.report({'INFO'}, "Light " + list[list_index].name + " deleted from the list")
+			self.my_dict.pop(list[list_index].name, None)
+
+		list.remove(list_index)
+		list_index -= 1
+		update_lumiere_dict(self.my_dict)
+
+
+	def invoke(self, context, event):
+		scn = context.scene
+		idx = scn.Lumiere_lights_list_index
+		self.my_dict = get_lumiere_dict()
+
+		try:
+			item = scn.Lumiere_lights_list[idx]
+		except IndexError:
+			pass
+		else:
+			if self.action == 'IMPORT':
+				self.import_light(context)
+			elif self.action == 'REMOVE':
+				self.remove_light(context)
+
+		return {"FINISHED"}
+
+# -------------------------------------------------------------------- #
 class OpStatus(object):
 	"""Operator status : Running or not"""
 	running = False
@@ -103,6 +266,7 @@ class OpStatus(object):
 	def __init__(cls, value):
 		cls.value = running
 
+# -------------------------------------------------------------------- #
 class LUMIERE_OT_ray_operator(Operator):
 	bl_idname = "lumiere.ray_operator"
 	bl_label = "Lighting operator"
@@ -125,7 +289,6 @@ class LUMIERE_OT_ray_operator(Operator):
 		self.create_collection()
 
 	def invoke(self, context, event):
-		print("LUMIERE RUNNING ...")
 		args = (self, context)
 		self.lumiere_context = context
 		if context.space_data.type == 'VIEW_3D':
@@ -180,11 +343,9 @@ class LUMIERE_OT_ray_operator(Operator):
 			if context.area != self.lumiere_area:
 				self.is_running = False
 				self.unregister_handlers(context)
-				print("LUMIERE CANCELLED ...")
 				return {'CANCELLED'}
 
 			if event.type in {"ESC", "RIGHTMOUSE"} :
-				print("LUMIERE EXIT ...")
 				self.unregister_handlers(context)
 
 				# State of 3d cursor before Lumiere
@@ -280,12 +441,13 @@ def check_light_selected(self, context):
 classes = [
 	LUMIERE_OT_export_light,
 	LUMIERE_OT_ray_operator,
+	PRESET_OT_actions,
+	LUMIERE_OT_PresetPopup,
 	]
 
 def register():
 	from bpy.utils import register_class
 	for cls in classes:
-		print("CLASSE: ", cls)
 		register_class(cls)
 
 def unregister():

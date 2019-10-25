@@ -321,7 +321,7 @@ def update_mat(self, context):
 	light = context.object
 
 	# Softbox Light
-	if light.Lumiere.light_type == "Softbox":
+	if light.type == "MESH":
 
 		mat = get_mat_name()
 		reflect_light_path = mat.node_tree.nodes["Reflect Light Path"]
@@ -333,18 +333,14 @@ def update_mat(self, context):
 		texture_map = mat.node_tree.nodes["Texture map"]
 		texture_emit = mat.node_tree.nodes["Emit texture"]
 		color_emit = mat.node_tree.nodes["Emit color"]
-		color_emit.inputs[0].default_value = light.Lumiere.light_color
+		blackbody_color = mat.node_tree.nodes["Blackbody"]
 		rgb_color = mat.node_tree.nodes["RGB"]
-		rgb_color.outputs[0].default_value = light.Lumiere.light_color
 		ies_map = mat.node_tree.nodes["Ies map"]
 		ies = mat.node_tree.nodes["IES Texture"]
 		diffuse = mat.node_tree.nodes["Diffuse BSDF"]
-		diffuse.inputs[0].default_value = light.Lumiere.light_color
 		img_text = mat.node_tree.nodes['Image Texture']
 		falloff = mat.node_tree.nodes["Light Falloff"]
-		falloff.inputs[0].default_value = light.Lumiere.energy
 		ies = mat.node_tree.nodes["IES Texture"]
-		ies.inputs[1].default_value = light.Lumiere.energy
 		ies_math = mat.node_tree.nodes["IES Math"]
 		mix1 = mat.node_tree.nodes["Mix Shader"]
 		mix2 = mat.node_tree.nodes["Mix Shader.001"]
@@ -353,6 +349,13 @@ def update_mat(self, context):
 		texture_mapping = mat.node_tree.nodes["Texture map"]
 		gradient_mapping = mat.node_tree.nodes["Gradient map"]
 		gradient_type = mat.node_tree.nodes["Gradient Texture"]
+
+		color_emit.inputs[0].default_value = light.Lumiere.light_color
+		rgb_color.outputs[0].default_value = light.Lumiere.light_color
+		diffuse.inputs[0].default_value = light.Lumiere.light_color
+		blackbody_color.inputs[0].default_value = light.Lumiere.blackbody
+		falloff.inputs[0].default_value = light.Lumiere.energy
+		ies.inputs[1].default_value = light.Lumiere.energy
 		#---Link Emit
 		mat.node_tree.links.new(mix1.outputs[0], mix2.inputs[2])
 
@@ -406,7 +409,7 @@ def update_mat(self, context):
 
 
 		#---Spherical Gradients
-		if light.Lumiere.color_type == "Spherical":
+		elif light.Lumiere.color_type == "Spherical":
 			gradient_type.gradient_type = "SPHERICAL"
 			mat.node_tree.links.new(coord.outputs[3], gradient_mapping.inputs[0])
 			mat.node_tree.links.new(gradient_type.outputs[0], colramp.inputs[0])
@@ -419,6 +422,11 @@ def update_mat(self, context):
 		elif light.Lumiere.color_type == "Color":
 			mat.node_tree.links.new(rgb_color.outputs[0], mix_col_edges.inputs[2])
 			mat.node_tree.links.new(rgb_color.outputs[0], refl_mix_col_edges.inputs[2])
+
+		#---Blackbody
+		elif light.Lumiere.color_type == "Blackbody":
+			mat.node_tree.links.new(blackbody_color.outputs[0], mix_col_edges.inputs[2])
+			mat.node_tree.links.new(blackbody_color.outputs[0], refl_mix_col_edges.inputs[2])
 
 
 		#---Reflector
@@ -457,6 +465,7 @@ def update_lamp(light):
 
 	falloff = mat.node_tree.nodes["Light Falloff"]
 	emit = mat.node_tree.nodes["Emission"]
+	blackbody_color = mat.node_tree.nodes["Blackbody"]
 	rgb = mat.node_tree.nodes["RGB"]
 	ies = mat.node_tree.nodes["IES"]
 	ies_map = mat.node_tree.nodes["IES map"]
@@ -472,12 +481,13 @@ def update_lamp(light):
 	geometry = mat.node_tree.nodes['Geometry']
 
 	rgb.outputs[0].default_value = light.Lumiere.light_color
+	blackbody_color.inputs[0].default_value = light.Lumiere.blackbody
 	ies.inputs[1].default_value = light.Lumiere.energy
 
 	#--EEVEE
 	falloff.inputs[0].default_value = light.Lumiere.energy
 	mat.energy = light.Lumiere.energy
-	mat.color = light.Lumiere.light_color[:3]
+	mat.color = (1,1,1) #light.Lumiere.light_color[:3]
 
 	#---IES Texture options
 	if light.Lumiere.material_menu == "IES":
@@ -490,10 +500,13 @@ def update_lamp(light):
 
 	#---Color for all the light
 	if light.Lumiere.color_type == "Color":
-		if emit.inputs[0].links:
-			mat.node_tree.links.remove(emit.inputs[0].links[0])
-		if mix_color_text.inputs[2].links:
-			mat.node_tree.links.remove(mix_color_text.inputs[2].links[0])
+		mat.node_tree.links.new(rgb.outputs[0], emit.inputs[0])
+
+
+	#---Color for all the light
+	elif light.Lumiere.color_type == "Blackbody":
+		mat.node_tree.links.new(blackbody_color.outputs[0], emit.inputs[0])
+
 
 	#---SPOT / POINT
 	if light.Lumiere.light_type in ("Spot", "Point", "Area"):

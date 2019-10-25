@@ -80,10 +80,12 @@ def update_type_light(self, context):
 				light['Lumiere'] = lumiere_dict[values['old_name']]
 				light.location = lumiere_dict[values['old_name']]["location"]
 				light.rotation_euler = lumiere_dict[values['old_name']]["rotation"]
+				light.Lumiere.scale_x = light.Lumiere.scale_x
 				update_mat(self, context)
 		else:
 			if values['old_type'] != context.object.data.type:
 				context.object.data.type = values['old_type']
+				light.Lumiere.scale_x = light.Lumiere.scale_x
 
 #-- The light is a mesh to be replaced by a lamp
 	elif light.type == "MESH" and light.Lumiere.light_type != "Softbox":
@@ -97,6 +99,7 @@ def update_type_light(self, context):
 		light['Lumiere'] = lumiere_dict[values['old_name']]
 		light.location = lumiere_dict[values['old_name']]["location"]
 		light.rotation_euler = lumiere_dict[values['old_name']]["rotation"]
+		light.Lumiere.scale_x = light.Lumiere.scale_x
 
 		update_lamp(light)
 
@@ -184,14 +187,17 @@ def update_ratio(self,context):
 
 # -------------------------------------------------------------------- #
 def update_lock_scale(self,context):
-	"""Update the light energy using the scale xy of the light"""
+	"""Update the scale xy of the light"""
 	light = context.object
 
 	if light.Lumiere.lock_scale:
-		light.scale[0] = light.scale[1] = light.Lumiere.scale_xy
-	else:
-		light.scale[0] = light.Lumiere.scale_x
-		light.scale[1] = light.Lumiere.scale_y
+		if light.type == 'MESH':
+			light.scale[0] = light.scale[1] = light.Lumiere.scale_xy
+			light.Lumiere.scale_x = light.Lumiere.scale_y = light.Lumiere.scale_xy
+		elif light.data.type == "AREA" and light.data.shape not in ('SQUARE', 'DISK'):
+			light.scale[0] = light.scale[1] = 1
+			light.Lumiere.scale_x = light.Lumiere.scale_y = light.Lumiere.scale_xy
+			light.data.size = light.data.size_y = light.Lumiere.scale_xy*2
 
 	update_texture_scale(self, context)
 
@@ -203,11 +209,19 @@ def update_scale_xy(self,context):
 	if light.type == 'MESH':
 		light.scale[0] = light.scale[1] = light.Lumiere.scale_xy
 		light.Lumiere.scale_x = light.Lumiere.scale_y = light.Lumiere.scale_xy
-	else:
-		light.data.size = light.data.size_y = light.Lumiere.scale_xy
+		if light.Lumiere.ratio:
+			light.Lumiere.energy = light.Lumiere.save_energy / (light.scale[0] * light.scale[1])
 
-	if light.Lumiere.ratio:
-		light.Lumiere.energy = light.Lumiere.save_energy / (light.scale[0] * light.scale[1])
+	else:
+		if light.data.type == "SUN":
+			light.data.angle = light.Lumiere.scale_xy
+		elif light.data.type == "AREA":
+			light.scale[0] = light.scale[1] = 1
+			light.Lumiere.scale_x = light.Lumiere.scale_y = light.Lumiere.scale_xy
+			light.data.size = light.data.size_y = light.Lumiere.scale_xy*2
+		else:
+			light.data.shadow_soft_size = light.Lumiere.scale_xy
+
 
 	if light.scale[0] < 0.001:
 		light.scale[0] = 0.001
@@ -220,15 +234,25 @@ def update_scale(self,context):
 	light = context.object
 
 	if light.type == 'MESH':
-		light.scale[0] = light.Lumiere.scale_x
-		light.scale[1] = light.Lumiere.scale_y
+		light.scale[0] = light.Lumiere.scale_x*2
+		light.scale[1] = light.Lumiere.scale_y*2
 		update_texture_scale(self, context)
-	else:
-		light.data.size = light.Lumiere.scale_x
-		light.data.size_y = light.Lumiere.scale_y
+		if light.Lumiere.ratio:
+			light.Lumiere.energy = light.Lumiere.save_energy / (light.scale[0] * light.scale[1])
 
-	if light.Lumiere.ratio:
-		light.Lumiere.energy = light.Lumiere.save_energy / (light.scale[0] * light.scale[1])
+	else:
+		if light.data.type == "AREA":
+			if light.data.shape not in ('SQUARE', 'DISK'):
+				light.scale[0] = light.scale[1] = 1
+				light.data.size = light.Lumiere.scale_x*2
+				light.data.size_y = light.Lumiere.scale_y*2
+			else:
+				light.scale[0] = light.scale[1] = 1
+				# light.Lumiere.scale_x = light.Lumiere.scale_y = light.Lumiere.scale_xy
+				light.data.size = light.data.size_y = light.Lumiere.scale_xy*2
+		else:
+			light.data.shadow_soft_size = light.Lumiere.scale_xy
+
 
 	if light.scale[0] < 0.001:
 		light.scale[0] = 0.001
@@ -265,9 +289,9 @@ def select_only(self, context):
 	for ob in context.scene.collection.children['Lumiere'].objects:
 		if ob.name != light.name:
 			if light.Lumiere.select_only:
-				ob.hide_viewport = False
-			else:
 				ob.hide_viewport = True
+			else:
+				ob.hide_viewport = False
 
 #---Select only the visible light
 	light.select_set(True)
@@ -282,24 +306,45 @@ def items_color_type(self, context):
 		items = {
 				("Color", "Color", "", 0),
 				("Linear", "Linear", "", 1),
-				("Spherical", "Spherical", "", 2),
-				("Reflector", "Reflector", "", 3),
+				("Blackbody", "Blackbody", "", 2),
+				("Spherical", "Spherical", "", 3),
+				("Reflector", "Reflector", "", 4),
 				}
 	else:
 		items = {
 				("Color", "Color", "", 0),
 				("Gradient", "Gradient", "", 1),
+				("Blackbody", "Blackbody", "", 2),
 				}
 
 	return items
 
+# -------------------------------------------------------------------- #
+## Preferences
+class LumiereAddonPreferences(bpy.types.AddonPreferences):
+	"""Preferences for Lumiere"""
 
+	bl_idname = __package__
+
+#---Activate gizmos
+	gizmos : BoolProperty(
+							   name="gizmos",
+							   description="Activate the gizmos on the lights",
+							   default=True)
+
+	def draw(self, context):
+		layout = self.layout
+		layout.prop(self, "gizmos")
 
 # -------------------------------------------------------------------- #
 class LightsProp(bpy.types.PropertyGroup):
+	num : StringProperty(
+						name="Number",
+						description="Number of lights (useful for group)",
+						)
 	name : StringProperty(
-						name="Description",
-						description="Description.",
+						name="Name",
+						description="Name of the light or group",
 						)
 # -------------------------------------------------------------------- #
 ## Properties
@@ -356,7 +401,7 @@ class LumiereObj(bpy.types.PropertyGroup):
 						  min=0.0001, max=100000,
 						  soft_min=0.001, soft_max=100.0,
 						  step=5,
-						  default=1,
+						  default=.5,
 						  precision=2,
 						  update=update_scale_xy,
 						  )
@@ -368,7 +413,7 @@ class LumiereObj(bpy.types.PropertyGroup):
 						  min=0.0001, max=100000,
 						  soft_min=0.001, soft_max=100.0,
 						  step=1,
-						  default=1,
+						  default=.5,
 						  precision=2,
 						  update=update_scale,
 						  )
@@ -380,7 +425,7 @@ class LumiereObj(bpy.types.PropertyGroup):
 						  min=0.0001, max=100000,
 						  soft_min=0.001, soft_max=100.0,
 						  step=5,
-						  default=1,
+						  default=.5,
 						  precision=2,
 						  update=update_scale,
 						  )
@@ -475,12 +520,23 @@ class LumiereObj(bpy.types.PropertyGroup):
 									 update=update_mat
 									 )
 
+#---Temperature of the light
+	blackbody : FloatProperty(
+								 name = "Blackbody",
+								 description="Temperature of the light",
+								 precision=1,
+								 # subtype = "NONE",
+								 # min = 0.0,
+								 update=update_mat
+								 )
+
 #---List of color options
 	color_type : EnumProperty(name="Colors",
 								description="Colors options:\n"+
 								"\u2022 Gradient: Gradient color emission\n"+
 								"\u2022 Color: Single color emission\n"+
 								"\u2022 Reflector: No emission\n"+
+								"\u2022 Blackbody: Spectrum of light emitted by any heated object\n"+
 								"Selected",
 								items=items_color_type,
 								update=update_mat,
@@ -524,7 +580,7 @@ class LumiereObj(bpy.types.PropertyGroup):
 								description="Rotate the texture on 90°",
 								update=update_mat)
 
-#---ImLock image scale on x and y
+#---Lock image scale on x and y
 	img_lock_scale : BoolProperty(name = "Lock",
 						description = "Lock image scale on x and y",
 						default=True,
@@ -545,7 +601,7 @@ class LumiereObj(bpy.types.PropertyGroup):
 	ies_scale : FloatProperty(
 							  name="Scale IES",
 							  description="Scale the IES.",
-							  min=0, max=2,
+							  min=0,
 							  default=1,
 							  precision=2,
 							  subtype='NONE',
@@ -628,7 +684,7 @@ class LumiereObj(bpy.types.PropertyGroup):
 #---Show only this light and hide all the others.
 	select_only : BoolProperty(name="Select Only",
 							   description="Show only this light and hide all the others",
-							   default=True,
+							   default=False,
 							   update=select_only)
 
 # -------------------------------------------------------------------- #
@@ -638,150 +694,13 @@ class ALL_LIGHTS_UL_list(bpy.types.UIList):
 		if self.layout_type in {'DEFAULT', 'COMPACT'}:
 			split = layout.split(factor=0.2)
 			split.label(text="%d" % (index))
-			split.prop(item, "name", text="", toggle=False, emboss=False, icon_value=icon, icon="BLANK1")
+			if int(item.num) > 1:
+				split.prop(item, "name", text="", toggle=False, emboss=False, icon_value=icon, icon="GROUP")
+			else:
+				split.prop(item, "name", text="", toggle=False, emboss=False, icon_value=icon, icon="LIGHT")
+			split.prop(item, "num", text="", toggle=False, emboss=False, icon_value=icon, icon="BLANK1")
 		elif self.layout_type in {'GRID'}:
 			pass
-
-
-# -------------------------------------------------------------------- #
-def seListIndexFunction(self, value):
-	print("CHANGE INDEX")
-# -------------------------------------------------------------------- #
-class CUSTOM_OT_actions(Operator):
-	"""Move items up and down, add and remove"""
-	bl_idname = "custom.list_action"
-	bl_label = "Import/Remove"
-	bl_description = "Import or remove from the list"
-	bl_options = {'REGISTER'}
-
-	action: bpy.props.EnumProperty(
-		description="Import/Export options.\nSelected",
-		items=(
-			('REMOVE', "Remove", ""),
-			('ADD', "Add", "")))
-
-
-	arg: bpy.props.StringProperty()
-
-
-	@classmethod
-	def description(cls, context, props):
-		return "Preset: " + props.arg
-
-	def add_light(self, context):
-		scn = context.scene
-		idx = scn.Lumiere_lights_list_index
-		light_from_dict = self.my_dict[scn.Lumiere_lights_list[idx].name]
-
-		if light_from_dict["Lumiere"]["light_type"] == "Softbox":
-			light = create_softbox(scn.Lumiere_lights_list[idx].name)
-
-		light["Lumiere"] = light_from_dict["Lumiere"]
-		light.location = light_from_dict["location"]
-		light.rotation_euler = light_from_dict["rotation"]
-		light.scale = light_from_dict["scale"]
-
-		update_mat(self, context)
-
-
-	def remove_light(self, context):
-
-		list = context.scene.Lumiere_lights_list
-		list_index = context.scene.Lumiere_lights_list_index
-
-		my_dict = get_lumiere_dict()
-		self.report({'INFO'}, "Light " + list[list_index].name + " deleted from the list")
-		my_dict.pop(list[list_index].name, None)
-		list.remove(list_index)
-		list_index -= 1
-		update_lumiere_dict(my_dict)
-
-
-	def invoke(self, context, event):
-		scn = context.scene
-		idx = scn.Lumiere_lights_list_index
-		self.my_dict = get_lumiere_dict()
-
-		try:
-			item = scn.Lumiere_lights_list[idx]
-		except IndexError:
-			pass
-		else:
-			if self.action == 'ADD':
-				self.add_light(context)
-			elif self.action == 'REMOVE':
-				self.remove_light(context)
-
-		return {"FINISHED"}
-
-# -------------------------------------------------------------------- #
-# Preset Menu
-class LUMIERE_OT_ExportPopup(Operator):
-	'''Add a Sampling Preset'''
-	bl_idname = "lumiere.export_popup"
-	bl_label = "Add Sampling Preset"
-
-	def draw_props(self, labelname):
-		layout = self.layout
-		c = layout.column()
-		row = c.row()
-		split = row.split(factor=0.25)
-		c = split.column()
-		c.label(text=labelname)
-		split = split.split()
-		self.column = split.column()
-
-	def execute(self, context):
-		try:
-			select_item = scene.Lumiere_lights_list[scene.Lumiere_lights_list_index].name
-			self.add_light(context, select_item)
-		except:
-			exc_type, exc_value, exc_traceback = sys.exc_info()
-			self.report({'ERROR'}, str(exc_value))
-
-		return {"FINISHED"}
-
-	def check(self, context):
-		return True
-
-	def draw(self, context):
-		scene = context.scene
-		light = context.active_object
-		layout = self.layout
-
-	#---Export individual light
-		col = layout.column()
-		row = col.row()
-		if len(context.scene.Lumiere_lights_list) > 0:
-			row.template_list("ALL_LIGHTS_UL_list", "",context.scene, "Lumiere_lights_list", context.scene, "Lumiere_lights_list_index", rows=2)
-			col2 = row.column(align=True)
-			op_add = col2.operator("custom.list_action", emboss=False, icon='IMPORT', text="")
-			op_add.action = 'ADD'
-			op_add.arg = "Import to scene"
-			row = col2.row(align=True)
-			op_del = row.operator("custom.list_action", emboss=False, icon='REMOVE', text="")
-			op_del.action = 'REMOVE'
-			op_del.arg = "Remove from list"
-
-		if (context.active_object is not None):
-			if ("Lumiere" in str(context.active_object.users_collection)) \
-			and len(list(context.scene.collection.children['Lumiere'].objects)) > 0 and context.view_layer.objects.active.name in context.scene.collection.children['Lumiere'].all_objects :
-
-				row = col.row()
-				row.prop(light, "name", text="Name", expand=False)
-				row.operator("object.export_light", text ="", emboss=False, icon="ADD")
-
-	def invoke(self, context, event):
-		context.scene.Lumiere_lights_list.clear()
-		my_dict = get_lumiere_dict()
-
-		for key, value in my_dict.items():
-
-		#---Fill the items for the light
-			item = context.scene.Lumiere_lights_list.add()
-			item.name = key
-
-		return context.window_manager.invoke_popup(self)
 
 # -------------------------------------------------------------------- #
 ## Parent panel
@@ -813,7 +732,7 @@ class MAIN_PT_Lumiere(POLL_PT_Lumiere, Panel):
 		col = layout.column(align=False)
 		row = col.row(align=True)
 		row.operator("lumiere.ray_operator", text="", emboss=False, icon="MOUSE_LMB_DRAG")
-		row.operator("lumiere.export_popup", text="", emboss=False, icon="PRESET")
+		row.operator("lumiere.preset_popup", text="", emboss=False, icon="PRESET")
 		# row.separator()
 
 	def draw(self, context):
@@ -861,7 +780,7 @@ class MESH_OPTIONS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 
 	def draw(self, context):
 		light = context.active_object
-		mat = get_mat_name()
+		mat = get_mat_name(light)
 
 		layout = self.layout
 		layout.use_property_split = True # Active single-column layout
@@ -940,7 +859,7 @@ class MESH_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 
 	def draw(self, context):
 		light = context.active_object
-		mat = get_mat_name()
+		mat = get_mat_name(light)
 		colramp = mat.node_tree.nodes['ColorRamp']
 		img_texture = mat.node_tree.nodes["Image Texture"]
 		invert = mat.node_tree.nodes["Texture invert"].inputs[0]
@@ -961,6 +880,8 @@ class MESH_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 				col.template_color_ramp(colramp, "color_ramp", expand=True)
 			elif light.Lumiere.color_type == 'Spherical':
 				col.template_color_ramp(colramp, "color_ramp", expand=True)
+			elif light.Lumiere.color_type == 'Blackbody':
+				col.prop(light.Lumiere, "blackbody", text="Temperature", expand=True)
 
 		elif light.Lumiere.material_menu == 'Texture':
 			row = col.row(align=True)
@@ -1013,7 +934,7 @@ class LAMP_OPTIONS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 
 	def draw(self, context):
 		light = context.active_object
-		mat = get_mat_name()
+		mat = get_mat_name(light)
 
 		layout = self.layout
 		layout.use_property_split = True # Active single-column layout
@@ -1034,28 +955,31 @@ class LAMP_OPTIONS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 			col.prop(light.data, "shape", text="Shape")
 			col = col.column(align=True)
 			row = col.row(align=True)
-			if light.Lumiere.lock_scale:
+			if light.data.shape in ('SQUARE', 'DISK'):
 				row.prop(light.Lumiere, "scale_xy", text="Scale xy")
-				row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_LOCKED')
+			else:
+				if light.Lumiere.lock_scale:
+					row.prop(light.Lumiere, "scale_xy", text="Scale xy")
+					row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_LOCKED')
 
-			if not light.Lumiere.lock_scale:
-				row = col.row(align=True)
-				row.prop(light.Lumiere, "scale_x", text="Scale x")
-				row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_UNLOCKED')
-				row = col.row(align=True)
-				row.prop(light.Lumiere, "scale_y", text="Scale y")
-				row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_UNLOCKED')
+				else:
+					row = col.row(align=True)
+					row.prop(light.Lumiere, "scale_x", text="Scale x")
+					row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_UNLOCKED')
+					row = col.row(align=True)
+					row.prop(light.Lumiere, "scale_y", text="Scale y")
+					row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_UNLOCKED')
 
 		elif light.data.type == "SPOT":
 			col.prop(light.data, "spot_size", text="Cone Size")
 			col.prop(light.data, "spot_blend", text="Cone Blend")
-			col.prop(light.data, "shadow_soft_size", text="Shadow")
+			col.prop(light.Lumiere, "scale_xy", text="Shadow")
 
 		elif light.data.type == "POINT":
-			col.prop(light.data, "shadow_soft_size", text="Shadow")
+			col.prop(light.Lumiere, "scale_xy", text="Shadow")
 
 		elif light.data.type == "SUN":
-			col.prop(light.data, "angle", text="Shadow")
+			col.prop(light.Lumiere, "scale_xy", text="Shadow")
 
 		col.separator()
 
@@ -1090,10 +1014,11 @@ class LAMP_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 
 	def draw(self, context):
 		light = context.active_object
-		mat = get_mat_name()
+		mat = get_mat_name(light)
 		ies = light.data.node_tree.nodes["IES"]
 		colramp = light.data.node_tree.nodes["ColorRamp"]
 		img_texture = light.data.node_tree.nodes["Image Texture"]
+		blackbody_color = light.data.node_tree.nodes["Blackbody"].inputs[0]
 		falloff = light.data.node_tree.nodes["Light Falloff"].inputs[1]
 
 		layout = self.layout
@@ -1128,8 +1053,11 @@ class LAMP_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 			col.prop(light.Lumiere, "color_type", text="", )
 
 			if light.Lumiere.color_type == 'Color':
-				row = col.row(align=True)
-				row.prop(light.Lumiere, "light_color", text="Color")
+				col = col.column(align=False)
+				col.prop(light.Lumiere, "light_color", text="Color")
+			elif light.Lumiere.color_type == 'Blackbody':
+				col = col.column(align=False)
+				col.prop(blackbody_color, "default_value", text="Temperature")
 			elif light.Lumiere.color_type == 'Gradient':
 				col.template_color_ramp(colramp, "color_ramp", expand=True)
 		else :
@@ -1165,7 +1093,7 @@ class OPERATOR_PT_Lumiere(Panel):
 		layout = self.layout
 		col = layout.column(align=False)
 		row = col.row(align=True)
-		row.operator("lumiere.export_popup", text="", emboss=False, icon="PRESET")
+		row.operator("lumiere.preset_popup", text="", emboss=False, icon="PRESET")
 
 	def draw(self, context):
 
@@ -1179,12 +1107,8 @@ class OPERATOR_PT_Lumiere(Panel):
 
 # -------------------------------------------------------------------- #
 ## Register
-
-
 classes = [
-	CUSTOM_OT_actions,
 	ALL_LIGHTS_UL_list,
-	LUMIERE_OT_ExportPopup,
 	MAIN_PT_Lumiere,
 	MESH_OPTIONS_PT_Lumiere,
 	MESH_MATERIALS_PT_Lumiere,
@@ -1193,18 +1117,17 @@ classes = [
 	OPERATOR_PT_Lumiere,
 	LumiereObj,
 	LightsProp,
+	LumiereAddonPreferences,
 	]
 
 
 def register():
 	from bpy.utils import register_class
 	for cls in classes:
-		print("CLASSE: ", cls)
 		register_class(cls)
 	bpy.types.Object.Lumiere = bpy.props.PointerProperty(type=LumiereObj)
 	bpy.types.Scene.Lumiere_lights_list = bpy.props.CollectionProperty(type=LightsProp)
 	bpy.types.Scene.Lumiere_lights_list_index = bpy.props.IntProperty(name = "Index", default = 0)
-	# bpy.types.Scene.Lumiere_lights_list_index = bpy.props.IntProperty(name = "Index", default = 0, update=seListIndexFunction)
 
 
 def unregister():

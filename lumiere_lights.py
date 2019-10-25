@@ -12,9 +12,8 @@ from .lumiere_materials import (
 	lamp_mat,
 	)
 
-
+# -------------------------------------------------------------------- #
 # Softbox
-#########################################################################################################
 def create_softbox(softbox_name = "Lumiere"):
 	"""Create the panel light with modifiers"""
 
@@ -22,7 +21,7 @@ def create_softbox(softbox_name = "Lumiere"):
 	# Set Lumiere as the active layer collection
 	bpy.context.view_layer.active_layer_collection = bpy.context.view_layer.layer_collection.children['Lumiere']
 	# Add a primitive plane in the active collection
-	bpy.ops.mesh.primitive_plane_add(size=2.0, calc_uvs=False, align='VIEW', enter_editmode=False, \
+	bpy.ops.mesh.primitive_plane_add(size=1.0, calc_uvs=False, align='VIEW', enter_editmode=False, \
 									location=(0.0, 0.0, 0.0), rotation=(0.0, 0.0, 90.0))
 	bpy.ops.object.editmode_toggle()
 	bpy.ops.uv.smart_project(angle_limit=66, island_margin=0, user_area_weight=0)
@@ -38,18 +37,18 @@ def create_softbox(softbox_name = "Lumiere"):
 	light_selected = True
 	bpy.context.view_layer.objects.active = bpy.data.objects[light.name]
 
-#---Add the material
+	# Add the material
 	softbox_mat(light)
 	mat = light.active_material
 
-#---Change the visibility
+	# Change the visibility
 	light.display_type = 'WIRE'
 	light.show_transparent = True
 	light.show_wire = True
 	light.cycles_visibility.camera = False
 	light.cycles_visibility.shadow = False
 
-#---Add Bevel
+	# Add Bevel
 	light.modifiers.new("Bevel", type='BEVEL')
 	light.modifiers["Bevel"].use_only_vertices = True
 	light.modifiers["Bevel"].use_clamp_overlap = True
@@ -61,8 +60,8 @@ def create_softbox(softbox_name = "Lumiere"):
 
 	return(light)
 
+# -------------------------------------------------------------------- #
 # Point light
-#########################################################################################################
 """Create a blender light"""
 def create_lamp(name, type):
 	# Create the lamp
@@ -75,7 +74,6 @@ def create_lamp(name, type):
 
 	# Initialize MIS / Type / Name
 	light.data.cycles.use_multiple_importance_sampling = True
-	light.Lumiere.typlight = type
 
 	# Select and active the light
 	bpy.ops.object.select_all(action='DESELECT')
@@ -88,8 +86,8 @@ def create_lamp(name, type):
 
 	return(light)
 
+# -------------------------------------------------------------------- #
 # Utilities
-#########################################################################################################
 def get_mat_name():
 	"""Return the name of the material of the light"""
 	light = bpy.context.object

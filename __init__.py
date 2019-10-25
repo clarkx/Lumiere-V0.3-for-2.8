@@ -20,7 +20,7 @@ bl_info = {
 	"name": "Lumiere",
 	"author": "Clarkx",
 	"description": "Interactive Lighting add-on for Blender.",
-	"version": (0, 1),
+	"version": (0, 2),
 	"blender": (2, 80, 0),
 	"location": "3D View",
 	"warning": "",
@@ -28,7 +28,6 @@ bl_info = {
 	"support": 'COMMUNITY',
 	"category": "Object"
 	}
-
 
 
 import imp
@@ -55,13 +54,6 @@ import shutil
 presets_folder = bpy.utils.script_paths("presets")
 addons_folder = bpy.utils.script_paths("addons")
 Lumiere_presets = os.path.join(presets_folder[0], 'object', 'Lumiere_presets')
-# if not os.path.isdir(Lumiere_presets):
-# 	# makedirs() will also create all the parent folders (like "object")
-# 	os.makedirs(Lumiere_presets)
-# 	# Get a list of all the files in your bundled presets folder
-# 	files = os.listdir(my_bundled_presets)
-# 	# Copy them
-# 	[shutil.copy2(os.path.join(my_bundled_presets, f), my_presets) for f in files]
 
 # register
 ##################################

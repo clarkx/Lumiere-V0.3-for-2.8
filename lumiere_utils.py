@@ -42,7 +42,7 @@ def raycast_light(self, event, context, range, ray_max=1000.0):
 	ray_target = ray_origin + view_vector
 
 	depsgraph =  context.evaluated_depsgraph_get()
-	
+
 #---Select the targeted object
 	def visible_objects_and_duplis():
 		if light.Lumiere.target :
@@ -84,11 +84,11 @@ def raycast_light(self, event, context, range, ray_max=1000.0):
 
 #---Find the position of the light using the reflect angle and the object targeted normal
 	for obj_trgt, matrix_trgt in visible_objects_and_duplis():
-		success, hit, normal = obj_ray_cast(obj_trgt, matrix_trgt)
+		success, hit, _normal = obj_ray_cast(obj_trgt, matrix_trgt)
 
 		if success is not None :
 			# Get the normal of the face from the targeted object
-			normal = matrix_trgt.to_3x3().inverted().transposed() @ normal
+			normal = matrix_trgt.to_3x3().inverted().transposed() @ _normal
 			normal.normalize()
 
 		#---Define the direction based on the normal of the targeted object, the view angle or the bounding box
@@ -182,13 +182,11 @@ def draw_circle(center_circle, radius_circle, steps):
 	radiusy = radius_circle[1] - center_circle[1]
 	radius = sqrt(radiusx**2 + radiusy**2)
 	rotation = radians(radius_circle[1] - center_circle[1]) / 2
-	# steps = int(360 / steps)
 
 	# Get the vertices of a 2d circle
 	verts, indices = create_2d_circle(steps, radius, rotation, center_x, center_y)
 
 	return(verts, indices)
-
 
 # -------------------------------------------------------------------- #
 def draw_shader(self, color, alpha, type, coords, size=1, indices=None):
@@ -215,10 +213,23 @@ def draw_shader(self, color, alpha, type, coords, size=1, indices=None):
 		self.report({'ERROR'}, str(exc_value))
 
 # -------------------------------------------------------------------- #
-def export_props_light(self, context):
+def export_props_group(self, context, name, light_selected):
+	"""Export the group of lights data in JSON format"""
+
+	lumiere_group = {}
+	lumiere_group['Group_'+name] = {}
+
+	for light in light_selected:
+		lumiere_dict = export_props_light(self, context, light)
+		lumiere_group['Group_'+name][light.name] = lumiere_dict[light.name]
+
+	return(lumiere_group)
+
+# -------------------------------------------------------------------- #
+def export_props_light(self, context, light):
 	"""Export the current light data in JSON format"""
+
 	lumiere_dict = {}
-	light = context.active_object
 
 	lumiere_dict[light.name] = {}
 	lumiere_dict[light.name]['Lumiere'] = light['Lumiere'].to_dict()
@@ -226,23 +237,15 @@ def export_props_light(self, context):
 	lumiere_dict[light.name]['rotation'] = tuple(light.matrix_world.to_euler())
 	lumiere_dict[light.name]['scale'] = tuple(light.scale)
 	lumiere_dict[light.name]['location'] = tuple(light.location)
-	lumiere_dict[light.name]['Lumiere']['definition'] = list(wrap(light['Lumiere']['definition'], 50)) if "definition" in light['Lumiere'] else " "
 
-	# lumiere_dict[light.name]['group'] = {}
-	# for group in bpy.data.objects[light.name].users_group :
-	# 	# lumiere_dict[light.name]['group'] = {group.name : list(wrap(group["Lumiere"]["definition"], 50))} if "definition" in group["Lumiere"] else {group.name : " "}
-	# 	lumiere_dict[light.name]['group'].update({group.name : list(wrap(group['Lumiere']['definition'], 50))} if "definition" in group['Lumiere'] else {group.name : " "})
-
-	mat = get_mat_name()
-	if light.type == "LAMP":
-		lamp = get_lamp(context, light.data.name)
+	mat = get_mat_name(light)
+	if light.type == "LIGHT":
 		lumiere_dict[light.name]['smooth'] = light.data.node_tree.nodes["Light Falloff"].inputs[1].default_value
 	else:
 		lumiere_dict[light.name]['smooth'] = mat.node_tree.nodes['Light Falloff'].inputs[1].default_value
 
 	#---Gradient
 		if light.Lumiere.color_type in ("Linear", "Spherical"):
-			# lumiere_dict[light.name]['repeat'] = mat.node_tree.nodes['Math'].inputs[1].default_value
 			colramp = mat.node_tree.nodes['ColorRamp'].color_ramp
 			lumiere_dict[light.name]['gradient'] = {}
 			lumiere_dict[light.name]['interpolation'] = colramp.interpolation
@@ -252,10 +255,9 @@ def export_props_light(self, context):
 	return(lumiere_dict)
 
 # -------------------------------------------------------------------- #
-def get_mat_name():
+def get_mat_name(light):
 	"""Return the name of the material of the light"""
-	light = bpy.context.object
-	if bpy.context.object.type == 'MESH':
+	if light.type == 'MESH':
 		mat = light.active_material
 	else:
 		mat = bpy.data.lights[light.data.name].name
