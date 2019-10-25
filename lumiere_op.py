@@ -212,8 +212,12 @@ class PRESET_OT_actions(Operator):
 
 		if light_from_dict["Lumiere"]["light_type"] == "Softbox":
 			light = create_softbox(light_name)
+			colramp = mat.node_tree.nodes['ColorRamp'].color_ramp
 		else:
 			light = create_lamp(light_name, light_from_dict["Lumiere"]["light_type"])
+			colramp = light.data.node_tree.nodes["ColorRamp"].color_ramp
+			if light.data.type == "AREA" :
+				light.data.shape = light_from_dict['shape']
 
 		light["Lumiere"] = light_from_dict["Lumiere"]
 		light.location = light_from_dict["location"]
@@ -221,6 +225,17 @@ class PRESET_OT_actions(Operator):
 		light.scale = light_from_dict["scale"]
 		light.Lumiere.light_type = light_from_dict["Lumiere"]["light_type"]
 		light.Lumiere.scale_x = light.Lumiere.scale_x
+
+		# Gradient
+		if light.Lumiere.color_type in ("Linear", "Spherical", "Gradient"):
+			colramp.interpolation = light_from_dict['interpolation']
+			i = 0
+			for key, value in sorted(light_from_dict['gradient'].items()) :
+				if i > 1:
+					colramp.elements.new(float(key))
+				colramp.elements[i].position = float(key)
+				colramp.elements[i].color[:] = value
+				i += 1
 
 		update_mat(self, context)
 

@@ -240,17 +240,20 @@ def export_props_light(self, context, light):
 
 	mat = get_mat_name(light)
 	if light.type == "LIGHT":
+		colramp = light.data.node_tree.nodes["ColorRamp"].color_ramp
 		lumiere_dict[light.name]['smooth'] = light.data.node_tree.nodes["Light Falloff"].inputs[1].default_value
+		if light.data.type == "AREA" :
+			lumiere_dict[light.name]['shape'] = light.data.shape
 	else:
+		colramp = mat.node_tree.nodes['ColorRamp'].color_ramp
 		lumiere_dict[light.name]['smooth'] = mat.node_tree.nodes['Light Falloff'].inputs[1].default_value
 
-	#---Gradient
-		if light.Lumiere.color_type in ("Linear", "Spherical"):
-			colramp = mat.node_tree.nodes['ColorRamp'].color_ramp
-			lumiere_dict[light.name]['gradient'] = {}
-			lumiere_dict[light.name]['interpolation'] = colramp.interpolation
-			for i in range(len(colramp.elements)):
-				lumiere_dict[light.name]['gradient'].update({colramp.elements[i].position: colramp.elements[i].color[:]})
+	# Gradient
+	if light.Lumiere.color_type in ("Linear", "Spherical", "Gradient"):
+		lumiere_dict[light.name]['gradient'] = {}
+		lumiere_dict[light.name]['interpolation'] = colramp.interpolation
+		for i in range(len(colramp.elements)):
+			lumiere_dict[light.name]['gradient'].update({colramp.elements[i].position: colramp.elements[i].color[:]})
 
 	return(lumiere_dict)
 
