@@ -1,4 +1,8 @@
 import bpy
+import os
+import json
+import sys
+
 from .lumiere_utils import (
 	raycast_light,
 	export_props_light,
@@ -24,8 +28,6 @@ from .lumiere_lights import (
 	create_lamp,
 	)
 
-import enum
-from collections import Counter
 from bpy.types import Operator
 
 from mathutils import (
@@ -41,8 +43,6 @@ from math import (
 	pi,
 	)
 
-import os
-import json
 
 # -------------------------------------------------------------------- #
 # Preset Menu
@@ -305,6 +305,8 @@ class LUMIERE_OT_ray_operator(Operator):
 
 	def invoke(self, context, event):
 		args = (self, context)
+		preferences = context.preferences
+		self.addon_prefs = preferences.addons[__package__].preferences
 		self.lumiere_context = context
 		if context.space_data.type == 'VIEW_3D':
 			self.lumiere_area = context.area
@@ -382,6 +384,7 @@ class LUMIERE_OT_ray_operator(Operator):
 
 			# Left mouse button pressed with an object from Lumiere collection
 			if self.lmb and self.in_view_3d:
+				context.scene.cycles.preview_pause = self.addon_prefs.render_pause
 				if self.light_selected :
 					# Raycast to move the light compared to the targeted object
 					raycast_light(self, event, context, context.object.Lumiere.range)
@@ -389,7 +392,11 @@ class LUMIERE_OT_ray_operator(Operator):
 					create_softbox()
 
 				return {'RUNNING_MODAL'}
-
+			else:
+				if self.addon_prefs.render_pause:
+					context.scene.cycles.preview_pause = False
+					# Hack to update cycles
+					context.view_layer.objects.active = context.active_object
 			return {"PASS_THROUGH"}
 
 		except:

@@ -153,7 +153,6 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 
 		self.range_widget.target_set_prop('offset', light.Lumiere, 'range')
 
-
 		if OpStatus.running == True or addon_prefs.gizmos == False:
 			self.hit_widget.hide = True
 			self.range_widget.hide = True
@@ -186,8 +185,12 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 				self.spot_circle_widget.matrix_basis = hit_matrix.normalized()
 
 
-			self.hit_widget.matrix_basis = hit_matrix.normalized()
-			self.range_widget.matrix_basis = hit_matrix.normalized()
+			if light.Lumiere.light_type == "Sun" and light.Lumiere.reflect_angle =="Solar angle":
+				self.range_widget.matrix_basis = mat_rot.to_4x4()
+				self.hit_widget.hide = True
+			else:
+				self.hit_widget.matrix_basis = hit_matrix.normalized()
+				self.range_widget.matrix_basis = hit_matrix.normalized()
 			self.scale_xy_widget.matrix_basis = light.matrix_world.normalized() @ mat_rot_y
 			self.scale_x_widget.matrix_basis = light.matrix_world.normalized() @ mat_rot_x
 

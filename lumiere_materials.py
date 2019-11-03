@@ -1,5 +1,7 @@
 import bpy
 import os
+import sys
+
 from math import (
 	degrees,
 	radians,
@@ -18,7 +20,7 @@ from mathutils import (
 def softbox_mat(light):
 	"""Cycles material nodes for the Softbox light"""
 
-#---Create a new material for cycles Engine.
+	# Create a new material for cycles Engine.
 	if bpy.context.scene.render.engine != 'CYCLES':
 		bpy.context.scene.render.engine = 'CYCLES'
 
@@ -35,36 +37,36 @@ def softbox_mat(light):
 	mat.node_tree.nodes.clear()
 
 #### GRADIENTS ###
-#---Texture Coordinate
+	# Texture Coordinate
 	coord = mat.node_tree.nodes.new(type = 'ShaderNodeTexCoord')
 	coord.location = (-2260.0, -360.0)
 
-#---Mapping Node
+	# Mapping Node
 	gradmap = mat.node_tree.nodes.new(type="ShaderNodeMapping")
 	gradmap.name = "Gradient map"
 	mat.node_tree.links.new(coord.outputs[2], gradmap.inputs[0])
 	gradmap.vector_type = "TEXTURE"
 	gradmap.location = (-1920, -580)
 
-#---Gradient Node Linear
+	# Gradient Node Linear
 	linear_grad = mat.node_tree.nodes.new(type="ShaderNodeTexGradient")
 	mat.node_tree.links.new(gradmap.outputs[0], linear_grad.inputs[0])
 	linear_grad.location = (-1560, -640)
 
-#---Color Ramp Node
+	# Color Ramp Node
 	colramp = mat.node_tree.nodes.new(type="ShaderNodeValToRGB")
 	mat.node_tree.links.new(linear_grad.outputs[0], colramp.inputs['Fac'])
 	colramp.color_ramp.elements[0].color = (1,1,1,1)
 	colramp.inputs[0].default_value = 0
 	colramp.location = (-1380, -640)
 
-#---Invert Node
+	# Invert Node
 	edge_invert = mat.node_tree.nodes.new(type="ShaderNodeInvert")
 	edge_invert.name = "Edges invert"
 	mat.node_tree.links.new(coord.outputs[0], edge_invert.inputs[1])
 	edge_invert.location = (-2100.0, 400.0)
 
-#---Multiply Node
+	# Multiply Node
 	edge_mult1 = mat.node_tree.nodes.new(type="ShaderNodeMixRGB")
 	edge_mult1.name = "Edges Multiply1"
 	edge_mult1.blend_type = 'MULTIPLY'
@@ -73,19 +75,19 @@ def softbox_mat(light):
 	mat.node_tree.links.new(coord.outputs[0], edge_mult1.inputs[2])
 	edge_mult1.location = (-1920.0, 400.0)
 
-#---Separate Node
+	# Separate Node
 	edge_sep = mat.node_tree.nodes.new(type="ShaderNodeSeparateXYZ")
 	edge_sep.name = "Edges Separate"
 	mat.node_tree.links.new(edge_mult1.outputs[0], edge_sep.inputs[0])
 	edge_sep.location = (-1740.0, 440.0)
 
-#---Value Node
+	# Value Node
 	edge_value = mat.node_tree.nodes.new(type="ShaderNodeValue")
 	edge_value.name = "Edges value"
 	edge_value.outputs[0].default_value = 4
 	edge_value.location = (-1740.0, 260.0)
 
-#---Multiply Node 2
+	# Multiply Node 2
 	edge_mult2 = mat.node_tree.nodes.new(type="ShaderNodeMath")
 	edge_mult2.name = "Edges Multiply2"
 	edge_mult2.operation = 'MULTIPLY'
@@ -93,7 +95,7 @@ def softbox_mat(light):
 	mat.node_tree.links.new(edge_value.outputs[0], edge_mult2.inputs[1])
 	edge_mult2.location = (-1560.0, 580.0)
 
-#---Multiply Node 3
+	# Multiply Node 3
 	edge_mult3 = mat.node_tree.nodes.new(type="ShaderNodeMath")
 	edge_mult3.name = "Edges Multiply3"
 	edge_mult3.operation = 'MULTIPLY'
@@ -101,7 +103,7 @@ def softbox_mat(light):
 	mat.node_tree.links.new(edge_value.outputs[0], edge_mult3.inputs[1])
 	edge_mult3.location = (-1560.0, 380.0)
 
-#---Multiply Node 4
+	# Multiply Node 4
 	edge_mult4 = mat.node_tree.nodes.new(type="ShaderNodeMath")
 	edge_mult4.name = "Edges Multiply4"
 	edge_mult4.operation = 'MULTIPLY'
@@ -109,7 +111,7 @@ def softbox_mat(light):
 	mat.node_tree.links.new(edge_mult3.outputs[0], edge_mult4.inputs[1])
 	edge_mult4.location = (-1380.0, 580.0)
 
-#---Power
+	# Power
 	edge_power = mat.node_tree.nodes.new(type="ShaderNodeMath")
 	edge_power.name = "Edges Power"
 	edge_power.operation = 'POWER'
@@ -117,7 +119,7 @@ def softbox_mat(light):
 	edge_power.inputs[1].default_value = 0.5
 	edge_power.location = (-1380.0, 340.0)
 
-#---Color Ramp Node
+	# Color Ramp Node
 	edge_colramp = mat.node_tree.nodes.new(type="ShaderNodeValToRGB")
 	edge_colramp.name = "Edges ColRamp"
 	mat.node_tree.links.new(edge_mult4.outputs[0], edge_colramp.inputs['Fac'])
@@ -128,7 +130,7 @@ def softbox_mat(light):
 	edge_colramp.color_ramp.elements[1].color = (1,1,1,1)
 	edge_colramp.location = (-1200, 540)
 
-#---Multiply Node 5
+	# Multiply Node 5
 	edge_mult5 = mat.node_tree.nodes.new(type="ShaderNodeMath")
 	edge_mult5.name = "Edges Multiply5"
 	edge_mult5.operation = 'MULTIPLY'
@@ -136,7 +138,7 @@ def softbox_mat(light):
 	mat.node_tree.links.new(edge_power.outputs[0], edge_mult5.inputs[1])
 	edge_mult5.location = (-920.0, 440.0)
 
-#---Mix Edges / Color for reflection only
+	# Mix Edges / Color for reflection only
 	refl_mix_color_edges = mat.node_tree.nodes.new(type = 'ShaderNodeMixRGB')
 	refl_mix_color_edges.name = "Reflect_Mix_Color_Edges"
 	refl_mix_color_edges.blend_type = 'MULTIPLY'
@@ -146,7 +148,7 @@ def softbox_mat(light):
 	mat.node_tree.links.new(edge_mult5.outputs[0], refl_mix_color_edges.inputs[1])
 	refl_mix_color_edges.location = (-700, 360)
 
-#---Mix Color Edges for lighting
+	# Mix Color Edges for lighting
 	mix_color_edges = mat.node_tree.nodes.new(type = 'ShaderNodeMixRGB')
 	mix_color_edges.name = "Mix_Color_Edges"
 	mix_color_edges.blend_type = 'MULTIPLY'
@@ -155,35 +157,35 @@ def softbox_mat(light):
 	mix_color_edges.inputs['Color2'].default_value = [1,1,1,1]
 	mix_color_edges.location = (-720, -180)
 
-#---Light path
+	# Light path
 	reflect_light_path = mat.node_tree.nodes.new(type = 'ShaderNodeLightPath')
 	reflect_light_path.name = "Reflect Light Path"
 	reflect_light_path.location = (-220, 380)
 
 #### IMAGE TEXTURE ###
 
-#---Mapping Node
+	# Mapping Node
 	textmap = mat.node_tree.nodes.new(type="ShaderNodeMapping")
 	textmap.name = "Texture map"
 	mat.node_tree.links.new(coord.outputs[2], textmap.inputs[0])
 	textmap.vector_type = "TEXTURE"
 	textmap.location = (-1920, 160)
 
-#---Image Texture
+	# Image Texture
 	texture = mat.node_tree.nodes.new(type = 'ShaderNodeTexImage')
 	mat.node_tree.links.new(textmap.outputs[0], texture.inputs[0])
 	texture.projection = 'FLAT'
 	texture.extension = 'REPEAT'
 	texture.location = (-1560, 160)
 
-#---Invert Node
+	# Invert Node
 	texture_invert = mat.node_tree.nodes.new(type="ShaderNodeInvert")
 	texture_invert.name = "Texture invert"
 	texture_invert.inputs[0].default_value = 0
 	mat.node_tree.links.new(texture.outputs[0], texture_invert.inputs[1])
 	texture_invert.location = (-1280.0, 140.0)
 
-#---Mix Texture / Color for reflection only
+	# Mix Texture / Color for reflection only
 	refl_mix_color_text = mat.node_tree.nodes.new(type = 'ShaderNodeMixRGB')
 	refl_mix_color_text.name = "Reflect_Mix_Color_Text"
 	refl_mix_color_text.blend_type = 'MULTIPLY'
@@ -193,7 +195,7 @@ def softbox_mat(light):
 	mat.node_tree.links.new(refl_mix_color_edges.outputs[0], refl_mix_color_text.inputs[1])
 	refl_mix_color_text.location = (-500, 240)
 
-#---Mix Color Texture for lighting
+	# Mix Color Texture for lighting
 	mix_color_text = mat.node_tree.nodes.new(type = 'ShaderNodeMixRGB')
 	mix_color_text.name = "Mix_Color_Text"
 	mix_color_text.blend_type = 'MULTIPLY'
@@ -205,19 +207,19 @@ def softbox_mat(light):
 
 #### COLOR ###
 
-#---RGB Node
+	# RGB Node
 	color = mat.node_tree.nodes.new(type = 'ShaderNodeRGB')
 	mat.node_tree.links.new(color.outputs[0], mix_color_edges.inputs[2])
 	mat.node_tree.links.new(color.outputs[0], refl_mix_color_edges.inputs[2])
 	color.location = (-1380, -400)
 
-#---Blackbody
+	# Blackbody
 	blackbody = mat.node_tree.nodes.new(type = 'ShaderNodeBlackbody')
 	blackbody.location = (-1220, -500)
 
 #### IES ###
 
-#---Mapping Node
+	# Mapping Node
 	ies_map = mat.node_tree.nodes.new(type="ShaderNodeMapping")
 	ies_map.name = "Ies map"
 	mat.node_tree.links.new(coord.outputs[3], ies_map.inputs[0])
@@ -225,7 +227,7 @@ def softbox_mat(light):
 	ies_map.location = (-1920, -200)
 	ies_map.inputs[1].default_value[2] = 0.5
 
-#---Mapping File texture
+	# Mapping File texture
 	ies = mat.node_tree.nodes.new(type="ShaderNodeTexIES")
 	ies.name = "IES Texture"
 	mat.node_tree.links.new(ies_map.outputs[0], ies.inputs[0])
@@ -233,7 +235,7 @@ def softbox_mat(light):
 	ies.inputs[1].default_value = light.Lumiere.energy
 	ies.location = (-1560, -200)
 
-#---Math MULTIPLY
+	# Math MULTIPLY
 	ies_math_mul = mat.node_tree.nodes.new(type = 'ShaderNodeMath')
 	ies_math_mul.name = "IES Math"
 	mat.node_tree.links.new(ies.outputs[0], ies_math_mul.inputs[0])
@@ -243,13 +245,13 @@ def softbox_mat(light):
 
 #### INTENSITY ###
 
-#---Light Falloff
+	# Light Falloff
 	falloff = mat.node_tree.nodes.new(type = 'ShaderNodeLightFalloff')
 	mat.node_tree.links.new(ies_math_mul.outputs[0], falloff.inputs[0])
 	falloff.inputs[0].default_value = 10
 	falloff.location = (-720, -440)
 
-#---Texture Emission Node
+	# Texture Emission Node
 	texture_emit = mat.node_tree.nodes.new(type = 'ShaderNodeEmission')
 	texture_emit.name = "Emit texture"
 	texture_emit.inputs[0].default_value = bpy.context.active_object.Lumiere.light_color
@@ -257,7 +259,7 @@ def softbox_mat(light):
 	mat.node_tree.links.new(falloff.outputs[0], texture_emit.inputs[1])
 	texture_emit.location = (-220, 20)
 
-#---Color Emission Node
+	# Color Emission Node
 	color_emit = mat.node_tree.nodes.new(type = 'ShaderNodeEmission')
 	color_emit.name = "Emit color"
 	color_emit.inputs[0].default_value = bpy.context.active_object.Lumiere.light_color
@@ -267,7 +269,7 @@ def softbox_mat(light):
 
 #### REFLECTOR ###
 
-#---Diffuse Node
+	# Diffuse Node
 	diffuse = mat.node_tree.nodes.new(type = 'ShaderNodeBsdfDiffuse')
 	diffuse.inputs[0].default_value = bpy.context.active_object.Lumiere.light_color
 	mat.node_tree.links.new(color.outputs[0], diffuse.inputs[0])
@@ -275,18 +277,18 @@ def softbox_mat(light):
 
 #### BACKFACE ###
 
-#---Geometry Node : Backface
+	# Geometry Node : Backface
 	backface = mat.node_tree.nodes.new(type = 'ShaderNodeNewGeometry')
 	backface.location = (500, 400)
 
-#---Transparent Node
+	# Transparent Node
 	trans = mat.node_tree.nodes.new(type="ShaderNodeBsdfTransparent")
 	trans.inputs[0].default_value = (1,1,1,1)
 	trans.location = (500, 160)
 
 #### MIX ###
 
-#---Mix Shader Node 1 - COLOR / TEXTURE
+	# Mix Shader Node 1 - COLOR / TEXTURE
 	mix1 = mat.node_tree.nodes.new(type="ShaderNodeMixShader")
 	#Light path reflection
 	mat.node_tree.links.new(reflect_light_path.outputs[5], mix1.inputs[0])
@@ -294,7 +296,7 @@ def softbox_mat(light):
 	mat.node_tree.links.new(texture_emit.outputs[0], mix1.inputs[2])
 	mix1.location = (180, 40)
 
-#---Mix Shader Node 3 - BACKFACE
+	# Mix Shader Node 3 - BACKFACE
 	mix3 = mat.node_tree.nodes.new(type="ShaderNodeMixShader")
 	#Link Backface
 	mat.node_tree.links.new(backface.outputs[6], mix3.inputs[0])
@@ -304,7 +306,7 @@ def softbox_mat(light):
 
 #### OUTPUT ###
 
-#---Output Shader Node
+	# Output Shader Node
 	output = mat.node_tree.nodes.new(type = 'ShaderNodeOutputMaterial')
 	output.location = (960, 80)
 	output.select
@@ -313,7 +315,7 @@ def softbox_mat(light):
 
 
 # Update material
-#########################################################################################################
+# -------------------------------------------------------------------- #
 def update_mat(self, context):
 	"""Update the material nodes of the lights"""
 
@@ -356,10 +358,10 @@ def update_mat(self, context):
 		blackbody_color.inputs[0].default_value = light.Lumiere.blackbody
 		falloff.inputs[0].default_value = light.Lumiere.energy
 		ies.inputs[1].default_value = light.Lumiere.energy
-		#---Link Emit
+			# Link Emit
 		mat.node_tree.links.new(mix1.outputs[0], mix2.inputs[2])
 
-	#---Image Texture options
+		# Image Texture options
 		if light.Lumiere.material_menu =="Texture":
 			if light.Lumiere.img_name != "" :
 				img_text.image = bpy.data.images[light.Lumiere.img_name]
@@ -374,7 +376,7 @@ def update_mat(self, context):
 				if refl_mix_col_text.inputs[2].links:
 					mat.node_tree.links.remove(refl_mix_col_text.inputs[2].links[0])
 
-	#---IES Texture options
+		# IES Texture options
 		elif light.Lumiere.material_menu == "IES":
 			ies_map.inputs[3].default_value[2] = light.Lumiere.ies_scale
 			if light.Lumiere.ies_name != "" :
@@ -391,7 +393,7 @@ def update_mat(self, context):
 				if falloff.inputs[0].links:
 					mat.node_tree.links.remove(falloff.inputs[0].links[0])
 
-		#---Linear Gradients
+			# Linear Gradients
 		if light.Lumiere.color_type == "Linear":
 			gradient_type.gradient_type = "LINEAR"
 			mat.node_tree.links.new(coord.outputs[2], gradient_mapping.inputs[0])
@@ -399,7 +401,7 @@ def update_mat(self, context):
 			mat.node_tree.links.new(colramp.outputs[0], mix_col_edges.inputs[2])
 			mat.node_tree.links.new(colramp.outputs[0], refl_mix_col_edges.inputs[2])
 
-		#---Gradients links
+			# Gradients links
 			gradient_mapping.inputs[2].default_value[2] = radians(0)
 			gradient_mapping.inputs[1].default_value[0] = 0
 			gradient_mapping.inputs[1].default_value[1] = 0
@@ -408,7 +410,7 @@ def update_mat(self, context):
 				gradient_mapping.inputs[2].default_value[2] = radians(90)
 
 
-		#---Spherical Gradients
+			# Spherical Gradients
 		elif light.Lumiere.color_type == "Spherical":
 			gradient_type.gradient_type = "SPHERICAL"
 			mat.node_tree.links.new(coord.outputs[3], gradient_mapping.inputs[0])
@@ -418,23 +420,23 @@ def update_mat(self, context):
 			gradient_mapping.inputs[2].default_value[2] = radians(0)
 
 
-		#---Color
+			# Color
 		elif light.Lumiere.color_type == "Color":
 			mat.node_tree.links.new(rgb_color.outputs[0], mix_col_edges.inputs[2])
 			mat.node_tree.links.new(rgb_color.outputs[0], refl_mix_col_edges.inputs[2])
 
-		#---Blackbody
+			# Blackbody
 		elif light.Lumiere.color_type == "Blackbody":
 			mat.node_tree.links.new(blackbody_color.outputs[0], mix_col_edges.inputs[2])
 			mat.node_tree.links.new(blackbody_color.outputs[0], refl_mix_col_edges.inputs[2])
 
 
-		#---Reflector
+			# Reflector
 		elif light.Lumiere.color_type == "Reflector":
-			#---Link Diffuse
+				# Link Diffuse
 			mat.node_tree.links.new(diffuse.outputs[0], mix2.inputs[2])
 
-			#---Transparent Node to black
+				# Transparent Node to black
 			mat.node_tree.nodes["Transparent BSDF"].inputs[0].default_value = (0,0,0,1)
 
 		if light.Lumiere.falloff_type == '0':
@@ -447,19 +449,19 @@ def update_mat(self, context):
 			# Constant
 			mat.node_tree.links.new(falloff.outputs[2], color_emit.inputs[1])
 
-	#---Blender Lamps
+		# Blender Lamps
 	else:
 
-	#---Get the lamp or the softbox link to the duplivert
+		# Get the lamp or the softbox link to the duplivert
 		light = context.object
-	#---Get the material nodes of the lamp
+		# Get the material nodes of the lamp
 		mat = light.data
 
 		update_lamp(light)
 
-#########################################################################################################
-"""Update the material nodes of the blender lights"""
+# -------------------------------------------------------------------- #
 def update_lamp(light):
+	"""Update the material nodes of the blender lights"""
 
 	mat = light.data
 
@@ -489,7 +491,7 @@ def update_lamp(light):
 	mat.energy = light.Lumiere.energy
 	mat.color = (1,1,1) #light.Lumiere.light_color[:3]
 
-	#---IES Texture options
+		# IES Texture options
 	if light.Lumiere.material_menu == "IES":
 		ies_map.inputs[3].default_value[2] = light.Lumiere.ies_scale
 		if light.Lumiere.ies_name != "" :
@@ -498,17 +500,17 @@ def update_lamp(light):
 		else:
 			ies.ies = None
 
-	#---Color for all the light
+		# Color for all the light
 	if light.Lumiere.color_type == "Color":
 		mat.node_tree.links.new(rgb.outputs[0], emit.inputs[0])
 
 
-	#---Color for all the light
+		# Color for all the light
 	elif light.Lumiere.color_type == "Blackbody":
 		mat.node_tree.links.new(blackbody_color.outputs[0], emit.inputs[0])
 
 
-	#---SPOT / POINT
+		# SPOT / POINT
 	if light.Lumiere.light_type in ("Spot", "Point", "Area"):
 		mat.node_tree.links.new(ies_math.outputs[0], falloff.inputs[0])
 
@@ -554,25 +556,25 @@ def update_lamp(light):
 			mat.node_tree.links.new(falloff.outputs[2], emit.inputs[1])
 
 
-#########################################################################################################
-"""Cycles material nodes for blender lights"""
+# -------------------------------------------------------------------- #
 def lamp_mat(light):
+	"""Cycles material nodes for blender lights"""
 
-#---Create a new material for cycles Engine.
+	# Create a new material for cycles Engine.
 	bpy.context.scene.render.engine = 'CYCLES'
 	mat = bpy.data.materials.new(light.name)
 
 
-#---Clear default nodes
+	# Clear default nodes
 	light.data.use_nodes = True
 	light.data.node_tree.nodes.clear()
 
-#---Texture Coordinate
+	# Texture Coordinate
 	coord = light.data.node_tree.nodes.new(type = 'ShaderNodeTexCoord')
 	coord.location = (-1300.0, 280.0)
 
 #### TEXTURE ###
-#---Mapping Texture Node
+	# Mapping Texture Node
 	textmap = light.data.node_tree.nodes.new(type="ShaderNodeMapping")
 	light.data.node_tree.links.new(coord.outputs[1], textmap.inputs[0])
 	textmap.vector_type = "POINT"
@@ -581,7 +583,7 @@ def lamp_mat(light):
 	textmap.inputs[1].default_value[1] = 0.5
 	textmap.location = (-1100.0, 800.0)
 
-#---Image Texture
+	# Image Texture
 	texture = light.data.node_tree.nodes.new(type = 'ShaderNodeTexImage')
 	light.data.node_tree.links.new(textmap.outputs[0], texture.inputs[0])
 	texture.projection_blend = 0
@@ -589,28 +591,28 @@ def lamp_mat(light):
 	texture.extension = 'CLIP'
 	texture.location = (-740.0, 800.0)
 
-#---Invert Node
+	# Invert Node
 	invert = light.data.node_tree.nodes.new(type="ShaderNodeInvert")
 	invert.name = "Texture invert"
 	light.data.node_tree.links.new(texture.outputs[0], invert.inputs[1])
 	invert.location = (-460.0, 740.0)
 
 #### IES ###
-#---Mapping
+	# Mapping
 	ies_map = light.data.node_tree.nodes.new(type="ShaderNodeMapping")
 	light.data.node_tree.links.new(coord.outputs[1], ies_map.inputs[0])
 	ies_map.vector_type = "TEXTURE"
 	ies_map.name = "IES map"
 	ies_map.location = (-1100.0, 480.0)
 
-#---IES
+	# IES
 	ies = light.data.node_tree.nodes.new(type="ShaderNodeTexIES")
 	ies.name = "IES"
 	ies.mode = 'INTERNAL'
 	light.data.node_tree.links.new(ies_map.outputs[0], ies.inputs[0])
 	ies.location = (-740.0, 360.0)
 
-#---IES Math MULTIPLY
+	# IES Math MULTIPLY
 	ies_math = light.data.node_tree.nodes.new(type = 'ShaderNodeMath')
 	ies_math.name = "IES Math"
 	light.data.node_tree.links.new(ies.outputs[0], ies_math.inputs[0])
@@ -619,11 +621,11 @@ def lamp_mat(light):
 	ies_math.location = (-560, 360)
 
 #### GRADIENT AREA LIGHT###
-#---Geometry Node
+	# Geometry Node
 	geom = light.data.node_tree.nodes.new(type="ShaderNodeNewGeometry")
 	geom.location = (-1300, -120)
 
-#---Dot Product
+	# Dot Product
 	dotpro = light.data.node_tree.nodes.new("ShaderNodeVectorMath")
 	dotpro.operation = 'DOT_PRODUCT'
 	light.data.node_tree.links.new(geom.outputs[1], dotpro.inputs[0])
@@ -633,7 +635,7 @@ def lamp_mat(light):
 
 
 #### GRADIENT POINT / SPOT LIGHT ###
-#---Mapping Gradient Node
+	# Mapping Gradient Node
 	gradmap = light.data.node_tree.nodes.new(type="ShaderNodeMapping")
 	light.data.node_tree.links.new(coord.outputs[1], gradmap.inputs[0])
 	gradmap.vector_type = "TEXTURE"
@@ -641,35 +643,35 @@ def lamp_mat(light):
 	gradmap.inputs[2].default_value[1] = radians(90)
 	gradmap.location = (-1100.0, 160.0)
 
-#---Gradient Node Quadratic
+	# Gradient Node Quadratic
 	quad_grad = light.data.node_tree.nodes.new(type="ShaderNodeTexGradient")
 	light.data.node_tree.links.new(gradmap.outputs[0], quad_grad.inputs[0])
 	quad_grad.location = (-740, 20)
 
 #### ALL LIGHTS ###
 
-#---Color Ramp
+	# Color Ramp
 	colramp = light.data.node_tree.nodes.new(type="ShaderNodeValToRGB")
 	colramp.color_ramp.elements[0].color = (1,1,1,1)
 	light.data.node_tree.links.new(dotpro.outputs[1], colramp.inputs[0])
 	colramp.location = (-560.0, 100.0)
 
-#---Light Falloff
+	# Light Falloff
 	falloff = light.data.node_tree.nodes.new(type = 'ShaderNodeLightFalloff')
 	light.data.node_tree.links.new(ies_math.outputs[0], falloff.inputs[0])
 	falloff.inputs[0].default_value = 10
 	falloff.location = (-20.0, 120.0)
 
-#---RGB Node
+	# RGB Node
 	color = light.data.node_tree.nodes.new(type = 'ShaderNodeRGB')
 	color.location = (-20.0, 760.0)
 
-#---Blackbody : Horizon daylight kelvin temperature for sun
+	# Blackbody : Horizon daylight kelvin temperature for sun
 	blackbody = light.data.node_tree.nodes.new("ShaderNodeBlackbody")
 	blackbody.inputs[0].default_value = 4000
 	blackbody.location = (-20.0, 560.0)
 
-#---Mix Color Texture
+	# Mix Color Texture
 	mix_color_text = light.data.node_tree.nodes.new(type = 'ShaderNodeMixRGB')
 	mix_color_text.name = "Mix_Color_Text"
 	mix_color_text.blend_type = 'MULTIPLY'
@@ -678,22 +680,175 @@ def lamp_mat(light):
 	mix_color_text.inputs['Color2'].default_value = [1,1,1,1]
 	mix_color_text.location = (-20, 440)
 
-#---Emission Node
+	# Emission Node
 	emit = light.data.node_tree.nodes.new(type = 'ShaderNodeEmission')
 	## EEVEE doesn't work with nodes, use data color instead.
 	emit.inputs[0].default_value = (1,1,1,1)
 	light.data.node_tree.links.new(falloff.outputs[0], emit.inputs[1])
 	emit.location = (180.0, 320.0)
 
-#---Output Shader Node
+	# Output Shader Node
 	output = light.data.node_tree.nodes.new(type = 'ShaderNodeOutputLight')
 	output.location = (360.0, 300.0)
 
 	#Link them together
 	light.data.node_tree.links.new(emit.outputs[0], output.inputs['Surface'])
 
+
+# -------------------------------------------------------------------- #
+def create_world(self, context):
+	"""Cycles material nodes for the woorld environment light"""
+
+	# Create a new world if not exist
+	world = ""
+
+	for w in bpy.data.worlds:
+		if w.name == "Lumiere_world":
+			world = bpy.data.worlds['Lumiere_world']
+			context.scene.world = world
+
+	if world == "":
+		context.scene.world = bpy.data.worlds.new("Lumiere_world")
+		world = context.scene.world
+
+	world.use_nodes= True
+	world.node_tree.nodes.clear()
+
+	# Use multiple importance sampling for the world
+	context.scene.world.cycles.sample_as_light = True
+
+	# Texture Coordinate
+	coord = world.node_tree.nodes.new(type = 'ShaderNodeTexCoord')
+	coord.location = (-1660.0, 200.0)
+
+	# Mapping Node HDRI
+	textmap = world.node_tree.nodes.new(type="ShaderNodeMapping")
+	textmap.vector_type = "POINT"
+	world.node_tree.links.new(coord.outputs[0], textmap.inputs[0])
+	textmap.location = (-1480.0, 460.0)
+
+	# Mapping Node Reflection
+	reflectmap = world.node_tree.nodes.new(type="ShaderNodeMapping")
+	reflectmap.vector_type = "POINT"
+	world.node_tree.links.new(coord.outputs[0], reflectmap.inputs[0])
+	reflectmap.location = (-1480.0, 60.0)
+
+	#-> Blur from  Bartek Skorupa : Source https://www.youtube.com/watch?v=kAUmLcXhUj0&feature=youtu.be&t=23m58s
+	# Noise Texture
+	noisetext = world.node_tree.nodes.new(type="ShaderNodeTexNoise")
+	noisetext.inputs[1].default_value = 1000
+	noisetext.inputs[2].default_value = 16
+	noisetext.inputs[3].default_value = 200
+	noisetext.location = (-1300.0, -100.0)
+
+	# Substract
+	substract = world.node_tree.nodes.new(type="ShaderNodeMixRGB")
+	substract.blend_type = 'SUBTRACT'
+	substract.inputs[0].default_value = 1
+	world.node_tree.links.new(noisetext.outputs[0], substract.inputs['Color1'])
+	substract.location = (-1120.0, -120.0)
+
+	# Add
+	add = world.node_tree.nodes.new(type="ShaderNodeMixRGB")
+	add.blend_type = 'ADD'
+	add.inputs[0].default_value = 0
+	world.node_tree.links.new(reflectmap.outputs[0], add.inputs['Color1'])
+	world.node_tree.links.new(substract.outputs[0], add.inputs['Color2'])
+	add.location = (-940.0, 80.0)
+
+	#-> End Blur
+
+	# Environment Texture
+	envtext = world.node_tree.nodes.new(type = 'ShaderNodeTexEnvironment')
+	world.node_tree.links.new(textmap.outputs[0], envtext.inputs[0])
+	envtext.location = (-1300, 460)
+
+	# Bright / Contrast
+	bright = world.node_tree.nodes.new(type = 'ShaderNodeBrightContrast')
+	world.node_tree.links.new(envtext.outputs[0], bright.inputs[0])
+	bright.location = (-1020, 420)
+
+	# Gamma
+	gamma = world.node_tree.nodes.new(type = 'ShaderNodeGamma')
+	world.node_tree.links.new(bright.outputs[0], gamma.inputs[0])
+	gamma.location = (-840, 400)
+
+	# Hue / Saturation / Value
+	hue = world.node_tree.nodes.new(type = 'ShaderNodeHueSaturation')
+	world.node_tree.links.new(gamma.outputs[0], hue.inputs[4])
+	hue.location = (-660, 440)
+
+	# Reflection Texture
+	reflectext = world.node_tree.nodes.new(type = 'ShaderNodeTexEnvironment')
+	world.node_tree.links.new(add.outputs[0], reflectext.inputs[0])
+	reflectext.location = (-760, 80)
+
+	# Bright / Contrast
+	bright2 = world.node_tree.nodes.new(type = 'ShaderNodeBrightContrast')
+	world.node_tree.links.new(reflectext.outputs[0], bright2.inputs[0])
+	bright2.location = (-480, 40)
+
+	# Gamma
+	gamma2 = world.node_tree.nodes.new(type = 'ShaderNodeGamma')
+	world.node_tree.links.new(bright2.outputs[0], gamma2.inputs[0])
+	gamma2.location = (-300, 20)
+
+	# Hue / Saturation / Value
+	hue2 = world.node_tree.nodes.new(type = 'ShaderNodeHueSaturation')
+	world.node_tree.links.new(gamma2.outputs[0], hue2.inputs[4])
+	hue2.location = (-120, 80)
+
+	# Light path
+	lightpath = world.node_tree.nodes.new(type = 'ShaderNodeLightPath')
+	lightpath.location = (-120, 620)
+
+	# Math
+	math = world.node_tree.nodes.new(type = 'ShaderNodeMath')
+	math.use_clamp = True
+	math.operation = 'SUBTRACT'
+	world.node_tree.links.new(lightpath.outputs[0], math.inputs[0])
+	world.node_tree.links.new(lightpath.outputs[3], math.inputs[1])
+	math.location = (160, 460)
+
+	# Background 01
+	background1 = world.node_tree.nodes.new(type = 'ShaderNodeBackground')
+	background1.inputs[0].default_value = (0.8,0.8,0.8,1.0)
+	background1.location = (160, 260)
+
+	# Background 02
+	background2 = world.node_tree.nodes.new(type = 'ShaderNodeBackground')
+	background2.location = (160, 120)
+
+	# Sky texture
+	sky = world.node_tree.nodes.new(type = 'ShaderNodeTexSky')
+	sky.location = (-120.0, -120.0)
+
+	# Mix Shader Node
+	mix = world.node_tree.nodes.new(type="ShaderNodeMixShader")
+	world.node_tree.links.new(math.outputs[0], mix.inputs[0])
+	world.node_tree.links.new(background1.outputs[0], mix.inputs[1])
+	world.node_tree.links.new(background2.outputs[0], mix.inputs[2])
+	mix.location = (340, 300)
+
+	# Output
+	output = world.node_tree.nodes.new("ShaderNodeOutputWorld")
+	output.location = (520, 280)
+	# Links
+	world.node_tree.links.new(background1.outputs[0], output.inputs[0])
+
+# -------------------------------------------------------------------- #
+def update_world():
+	"""Update the material nodes of the blender world environment"""
+	light = bpy.context.object
+	world = bpy.data.worlds['Lumiere_world']
+
+	sky_color = world.node_tree.nodes["Sky Texture"]
+	sky_background = world.node_tree.nodes["Background"]
+	world.node_tree.links.new(sky_color.outputs[0], sky_background.inputs[0])
+
+
 # Utilities
-#########################################################################################################
+# -------------------------------------------------------------------- #
 """Return the name of the material of the light"""
 def get_mat_name():
 	light = bpy.context.object

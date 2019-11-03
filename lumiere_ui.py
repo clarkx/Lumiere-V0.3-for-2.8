@@ -1,5 +1,6 @@
 import bpy
 import bmesh
+import time
 from bpy.types import Panel, Operator, Menu
 from bl_operators.presets import AddPresetBase
 from bl_ui.utils import PresetPanel
@@ -8,6 +9,9 @@ from .lumiere_utils import (
 	get_lumiere_dict,
 	update_lumiere_dict,
 	get_mat_name,
+	cartesian_coordinates,
+	getSunPosition,
+	update_sky,
 	)
 
 from .lumiere_materials import (
@@ -15,6 +19,8 @@ from .lumiere_materials import (
 	softbox_mat,
 	lamp_mat,
 	update_lamp,
+	create_world,
+	update_world,
 	)
 
 from .lumiere_lights import (
@@ -50,11 +56,13 @@ from bpy.props import (
 	BoolProperty,
 	)
 
+
 # -------------------------------------------------------------------- #
 def update_type_light(self, context):
 	"""Change the selected light to a new one"""
 
-	light = context.object
+	light = bpy.data.objects[self.id_data.name]
+
 	values = {}
 	lumiere_dict = {}
 	lumiere_dict[light.name] = light['Lumiere'].to_dict()
@@ -105,18 +113,21 @@ def update_type_light(self, context):
 
 		bpy.data.meshes.remove(mesh, do_unlink=True, do_id_user=True, do_ui_user=True)
 
+	# Set default position to "Estimated"
+	light.Lumiere.reflect_angle = "Estimated"
+
 	del lumiere_dict[values['old_name']]
 
 # -------------------------------------------------------------------- #
 def update_softbox_rounding(self, context):
 	"""Update the rounding value of the softbox"""
-	light = context.active_object
+	light = bpy.data.objects[self.id_data.name]
 	light.modifiers["Bevel"].width = light.Lumiere.softbox_rounding
 
 # -------------------------------------------------------------------- #
 def update_texture_scale(self, context):
 	"""Update the texture scale"""
-	light = context.active_object
+	light = bpy.data.objects[self.id_data.name]
 
 	if light.type == 'MESH':
 		me = light.data
@@ -143,7 +154,7 @@ def update_texture_scale(self, context):
 # -------------------------------------------------------------------- #
 def get_tilt(self):
 	"""Rotate the light on the Z axis"""
-	light = bpy.context.object
+	light = bpy.data.objects[self.id_data.name]
 	return light.rotation_euler.to_matrix().to_euler('ZYX').z
 
 def set_tilt(self, tilt):
@@ -156,7 +167,7 @@ def set_tilt(self, tilt):
 # -------------------------------------------------------------------- #
 def update_spherical_coordinate(self, context):
 	"""Rotate the light vertically (pitch) and horizontally around the targeted point"""
-	light = context.object
+	light = bpy.data.objects[self.id_data.name]
 
 	r = light.Lumiere.range
 	# θ theta is azimuthal angle, the angle of the rotation around the z-axis (aspect)
@@ -164,12 +175,8 @@ def update_spherical_coordinate(self, context):
 	# φ phi is the polar angle, rotated down from the positive z-axis (slope)
 	phi = radians(light.Lumiere.pitch)
 
-	#https://en.wikipedia.org/wiki/Spherical_coordinate_system
-	x = r * sin(phi) * cos(theta) + light.Lumiere.hit[0]
-	y = r * sin(phi) * sin(theta) + light.Lumiere.hit[1]
-	z = r * cos(phi) + light.Lumiere.hit[2]
+	light.location = cartesian_coordinates(r, theta, phi, light.Lumiere.hit)
 
-	light.location = Vector((x, y, z))
 	track  = light.location - Vector(light.Lumiere.hit)
 	rotaxis = (track.to_track_quat('Z','Y'))
 	light.rotation_euler = rotaxis.to_euler()
@@ -186,9 +193,19 @@ def update_ratio(self,context):
 			light.Lumiere.save_energy = (light.scale[0] * light.scale[1]) * light.Lumiere.energy
 
 # -------------------------------------------------------------------- #
+def update_hour(self,context):
+	"""Update the scale xy of the light"""
+	light = bpy.data.objects[self.id_data.name]
+
+	getSunPosition(light, localTime = light.Lumiere.hour, latitude = light.Lumiere.latitude, longitude = light.Lumiere.longitude, northOffset = 0.00, utcZone = 0, month = light.Lumiere.month, day = light.Lumiere.day, year = light.Lumiere.year, distance = light.Lumiere.range)
+
+	if light.Lumiere.sky_texture:
+		update_sky(self, context)
+
+# -------------------------------------------------------------------- #
 def update_lock_scale(self,context):
 	"""Update the scale xy of the light"""
-	light = context.object
+	light = bpy.data.objects[self.id_data.name]
 
 	if light.Lumiere.lock_scale:
 		if light.type == 'MESH':
@@ -204,7 +221,7 @@ def update_lock_scale(self,context):
 # -------------------------------------------------------------------- #
 def update_scale_xy(self,context):
 	"""Update the scale xy of the light"""
-	light = context.object
+	light = bpy.data.objects[self.id_data.name]
 
 	if light.type == 'MESH':
 		light.scale[0] = light.scale[1] = light.Lumiere.scale_xy
@@ -231,7 +248,7 @@ def update_scale_xy(self,context):
 # -------------------------------------------------------------------- #
 def update_scale(self,context):
 	"""Update the x dimension of the light"""
-	light = context.object
+	light = bpy.data.objects[self.id_data.name]
 
 	if light.type == 'MESH':
 		light.scale[0] = light.Lumiere.scale_x*2
@@ -264,11 +281,14 @@ def update_range(self,context):
 	"""Update the distance of the light from the object target"""
 	light = bpy.data.objects[self.id_data.name]
 
-	light_loc = Vector(light.Lumiere.hit) + (Vector(light.Lumiere.direction) * light.Lumiere.range)
-	light.location = Vector((light_loc[0], light_loc[1], light_loc[2]))
-	track  = light.location - Vector(light.Lumiere.hit)
-	rotaxis = (track.to_track_quat('Z','Y'))
-	light.rotation_euler = rotaxis.to_euler()
+	if light.Lumiere.light_type == "Sun" and light.Lumiere.reflect_angle == "Solar angle":
+		update_hour(self, context)
+	else:
+		light_loc = Vector(light.Lumiere.hit) + (Vector(light.Lumiere.direction) * light.Lumiere.range)
+		light.location = Vector((light_loc[0], light_loc[1], light_loc[2]))
+		track  = light.location - Vector(light.Lumiere.hit)
+		rotaxis = (track.to_track_quat('Z','Y'))
+		light.rotation_euler = rotaxis.to_euler()
 
 # -------------------------------------------------------------------- #
 def target_poll(self, object):
@@ -276,15 +296,16 @@ def target_poll(self, object):
 	if object.data.name not in bpy.context.scene.collection.children['Lumiere'].all_objects:
 		return object
 
+
 # -------------------------------------------------------------------- #
-def select_only(self, context):
+def update_select_only(self, context):
 	"""Show only this light and hide all the other"""
 	light = bpy.data.objects[self.id_data.name]
 
-#---Active only the visible light
+	# Active only the visible light
 	context.view_layer.objects.active = light
 
-#---Deselect and hide all the lights in the scene and show the active light
+	# Deselect and hide all the lights in the scene and show the active light
 	bpy.ops.object.select_all(action='DESELECT')
 	for ob in context.scene.collection.children['Lumiere'].objects:
 		if ob.name != light.name:
@@ -293,8 +314,36 @@ def select_only(self, context):
 			else:
 				ob.hide_viewport = False
 
-#---Select only the visible light
+	# Select only the visible light
 	light.select_set(True)
+
+# -------------------------------------------------------------------- #
+def update_reflect_angle(self, context):
+	"""Update the reflect angle position"""
+	light = bpy.data.objects[self.id_data.name]
+
+	if light.Lumiere.light_type == "Sun" and light.Lumiere.reflect_angle == "Solar angle":
+		light.Lumiere.blackbody = 5300
+		update_hour(self, context)
+
+# -------------------------------------------------------------------- #
+def update_sky_texture(self, context):
+	"""Add a sky texture for the solar angle"""
+	light = bpy.data.objects[self.id_data.name]
+
+	if light.Lumiere.sky_texture:
+		create_world(self, context)
+		update_world()
+		if light.Lumiere.light_type == "Sun" and light.Lumiere.reflect_angle == "Solar angle":
+			light.Lumiere.energy = 3
+			light.Lumiere.scale_xy = 0.05
+			light.Lumiere.color_type = "Blackbody"
+			update_hour(self,context)
+		else:
+			update_sky(self, context)
+	else:
+		bpy.data.worlds.remove(bpy.data.worlds['Lumiere_world'])
+
 
 # -------------------------------------------------------------------- #
 ## Items
@@ -319,6 +368,26 @@ def items_color_type(self, context):
 
 	return items
 
+def items_reflect_angle(self, context):
+	"""Define the different items for the color choice of lights"""
+	light = bpy.data.objects[self.id_data.name]
+
+	if light.Lumiere.light_type == "Sun":
+		items = {
+				("Estimated", "Estimated", "", 0),
+				("Accurate", "Accurate", "", 1),
+				("Normal", "Normal", "", 2),
+				("Solar angle", "Solar angle", "", 3),
+				}
+	else:
+		items = {
+				("Estimated", "Estimated", "", 0),
+				("Accurate", "Accurate", "", 1),
+				("Normal", "Normal", "", 2),
+				}
+
+	return items
+
 # -------------------------------------------------------------------- #
 ## Preferences
 class LumiereAddonPreferences(bpy.types.AddonPreferences):
@@ -328,13 +397,20 @@ class LumiereAddonPreferences(bpy.types.AddonPreferences):
 
 #---Activate gizmos
 	gizmos : BoolProperty(
-							   name="gizmos",
+							   name="Gizmos",
 							   description="Activate the gizmos on the lights",
 							   default=True)
+
+#---Activate render pause
+	render_pause : BoolProperty(
+							   name="Render Pause",
+							   description="Pause the render during interactive to save time",
+							   default=False)
 
 	def draw(self, context):
 		layout = self.layout
 		layout.prop(self, "gizmos")
+		layout.prop(self, "render_pause")
 
 # -------------------------------------------------------------------- #
 class LightsProp(bpy.types.PropertyGroup):
@@ -449,12 +525,10 @@ class LumiereObj(bpy.types.PropertyGroup):
 						  "\u2022 Normal : The light will be positioned in perpendicular to the normal of the face of the targeted object.\n"+\
 						  "\u2022 Estimated : The light will be positioned always facing the center of the bounding box.\n"+\
 						  "Selected",
-						  items=(
-						  ("0", "Accurate", "", 0),
-						  ("1", "Normal", "", 1),
-						  ("2", "Estimated", "", 2),
-						  ),
-						  default="2")
+						  items = items_reflect_angle,
+						  update = update_reflect_angle,
+						  default=None,
+						  )
 
 #---List of lights to change the selected one to
 	light_type : EnumProperty(name="Light type:",
@@ -525,9 +599,7 @@ class LumiereObj(bpy.types.PropertyGroup):
 								 name = "Blackbody",
 								 description="Temperature of the light",
 								 precision=1,
-								 # subtype = "NONE",
-								 # min = 0.0,
-								 update=update_mat
+								 update=update_mat,
 								 )
 
 #---List of color options
@@ -549,13 +621,16 @@ class LumiereObj(bpy.types.PropertyGroup):
 								"\u2022 Texture: Image texture emission\n"+
 								"\u2022 IES: Real world lights intensity distribution\n"+
 								"\u2022 Options: Define how light intensity decreases over distance and multiple important sample\n"+
+								"\u2022 World: Sky texture contribution\n"+
 								"Selected",
 								items = {
 										("Color", "Color", "Color", "COLOR", 0),
 										("Texture", "Texture", "Texture", "FILE_IMAGE", 1),
 										("IES", "IES", "IES","OUTLINER_OB_LIGHT", 2),
 										("Options", "Options", "Options","PREFERENCES", 3),
+										("World", "World", "World","WORLD", 4),
 										},
+								default=None,
 								)
 
 #---Name of image texture
@@ -685,7 +760,55 @@ class LumiereObj(bpy.types.PropertyGroup):
 	select_only : BoolProperty(name="Select Only",
 							   description="Show only this light and hide all the others",
 							   default=False,
-							   update=select_only)
+							   update=update_select_only)
+
+#---Sun position: Latitude
+	latitude : FloatProperty(
+						   name="Latitude",
+						   min=-89.9, max=89.9,
+						   default=48.87,
+						   update=update_hour)
+
+#---Sun position: Longitude
+	longitude : FloatProperty(
+						   name="Longitude",
+						   min=-180, max=180,
+						   default=2.67,
+						   update=update_hour)
+
+#---Sun position: Month
+	month : IntProperty(
+						   name="Month",
+						   min=1, max=12,
+						   default=time.localtime().tm_mon,
+						   update=update_hour)
+
+#---Sun position: Day
+	day : IntProperty(
+						   name="Day",
+						   min=1, max=31,
+						   default=time.localtime().tm_mday,
+						   update=update_hour)
+
+#---Sun position: Year
+	year : IntProperty(
+						   name="Year",
+						   min=1800, max=4000,
+						   default=time.localtime().tm_year,
+						   update=update_hour)
+
+#---Sun position: Hour
+	hour : FloatProperty(
+						   name="Hour",
+						   min=0, max=23.59,
+						   default=time.localtime().tm_hour,
+						   update=update_hour)
+
+#---Use sky texture with the solar angle.
+	sky_texture : BoolProperty(name="Sky texture",
+							   description="Use sky texture with the solar angle",
+							   default=False,
+							   update=update_sky_texture)
 
 # -------------------------------------------------------------------- #
 class ALL_LIGHTS_UL_list(bpy.types.UIList):
@@ -752,7 +875,7 @@ class MAIN_PT_Lumiere(POLL_PT_Lumiere, Panel):
 		col.prop(light.Lumiere, "light_type", text="Light type")
 		row = col.row(align=True)
 		row.prop(light.Lumiere, "reflect_angle", text="Position")
-		if light.Lumiere.reflect_angle == "2": #"Estimated"
+		if light.Lumiere.reflect_angle == "Estimated":
 			row.prop(light.Lumiere, "auto_bbox_center", text="", emboss=True, icon='AUTO')
 
 # -------------------------------------------------------------------- #
@@ -875,6 +998,7 @@ class MESH_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 			col.prop(light.Lumiere, "color_type", text="", )
 			if light.Lumiere.color_type in ('Color', 'Reflector'):
 				col.prop(light.Lumiere, "light_color", text="Color")
+
 			elif light.Lumiere.color_type == 'Linear':
 				col.prop(light.Lumiere, "rotate_ninety", text="Rotate 90°", icon="FILE_REFRESH")
 				col.template_color_ramp(colramp, "color_ramp", expand=True)
@@ -892,7 +1016,6 @@ class MESH_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 			col.prop(img_texture, "extension", text="Repeat")
 			col.prop(light.Lumiere, "img_reflect_only", text="Reflection only")
 
-
 		elif light.Lumiere.material_menu == 'IES':
 			row = col.row(align=True)
 			row.prop_search(light.Lumiere, "ies_name", bpy.data, "texts", text="", icon="OUTLINER_OB_LIGHT")
@@ -902,10 +1025,22 @@ class MESH_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 			op.filter_folder = False
 			col.prop(light.Lumiere, "ies_scale", text="Scale")
 			col.prop(light.Lumiere, "ies_reflect_only", text="Reflection only")
-		else :
+
+		elif light.Lumiere.material_menu == 'Options':
 			col.prop(light.Lumiere, "falloff_type", text="Falloff")
 			col.prop(falloff, "default_value", text="Smooth")
 			col.prop(mat.cycles, "sample_as_light", text='MIS')
+
+		else :
+			col.prop(light.Lumiere, "sky_texture", text="Sky texture")
+			if light.Lumiere.sky_texture:
+				world = bpy.data.worlds['Lumiere_world']
+				sky_color = world.node_tree.nodes["Sky Texture"]
+				strength = world.node_tree.nodes["Background"].inputs[1]
+				col.prop(sky_color, "turbidity", text="Turbidity")
+				col.prop(sky_color, "ground_albedo", text="Albedo")
+				col.prop(strength, "default_value", text="Strength")
+
 		col = flow.column(align=True)
 		col.ui_units_x = 7
 
@@ -951,45 +1086,55 @@ class LAMP_OPTIONS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 		col.ui_units_x = 7
 		col = col.column(align=True)
 
-		if light.data.type == "AREA":
-			col.prop(light.data, "shape", text="Shape")
-			col = col.column(align=True)
-			row = col.row(align=True)
-			if light.data.shape in ('SQUARE', 'DISK'):
-				row.prop(light.Lumiere, "scale_xy", text="Scale xy")
-			else:
-				if light.Lumiere.lock_scale:
+		if light.data.type == "SUN" and light.Lumiere.reflect_angle == "Solar angle":
+			col.prop(light.Lumiere, "scale_xy", text="Shadow")
+			col.prop(light.Lumiere, "hour", text="Hour")
+			col.prop(light.Lumiere, "latitude", text="Latitude")
+			col.prop(light.Lumiere, "longitude", text="Longitude")
+			col.prop(light.Lumiere, "month", text="Month")
+			col.prop(light.Lumiere, "day", text="Day")
+			col.prop(light.Lumiere, "year", text="Year")
+		else:
+			if light.data.type == "AREA":
+				col.prop(light.data, "shape", text="Shape")
+				col = col.column(align=True)
+				row = col.row(align=True)
+				if light.data.shape in ('SQUARE', 'DISK'):
 					row.prop(light.Lumiere, "scale_xy", text="Scale xy")
-					row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_LOCKED')
-
 				else:
-					row = col.row(align=True)
-					row.prop(light.Lumiere, "scale_x", text="Scale x")
-					row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_UNLOCKED')
-					row = col.row(align=True)
-					row.prop(light.Lumiere, "scale_y", text="Scale y")
-					row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_UNLOCKED')
+					if light.Lumiere.lock_scale:
+						row.prop(light.Lumiere, "scale_xy", text="Scale xy")
+						row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_LOCKED')
 
-		elif light.data.type == "SPOT":
-			col.prop(light.data, "spot_size", text="Cone Size")
-			col.prop(light.data, "spot_blend", text="Cone Blend")
-			col.prop(light.Lumiere, "scale_xy", text="Shadow")
+					else:
+						row = col.row(align=True)
+						row.prop(light.Lumiere, "scale_x", text="Scale x")
+						row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_UNLOCKED')
+						row = col.row(align=True)
+						row.prop(light.Lumiere, "scale_y", text="Scale y")
+						row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_UNLOCKED')
 
-		elif light.data.type == "POINT":
-			col.prop(light.Lumiere, "scale_xy", text="Shadow")
+			elif light.data.type == "SPOT":
+				col.prop(light.data, "spot_size", text="Cone Size")
+				col.prop(light.data, "spot_blend", text="Cone Blend")
+				col.prop(light.Lumiere, "scale_xy", text="Shadow")
 
-		elif light.data.type == "SUN":
-			col.prop(light.Lumiere, "scale_xy", text="Shadow")
+			elif light.data.type == "POINT":
+				col.prop(light.Lumiere, "scale_xy", text="Shadow")
 
-		col.separator()
+			elif light.data.type == "SUN":
+				col.prop(light.Lumiere, "scale_xy", text="Shadow")
 
-		col = flow.column(align=False)
-		col.ui_units_x = 7
-		col = col.column(align=True)
-		col.prop(light.Lumiere, "rotation", text="Rotation")
-		col.prop(light.Lumiere, "tilt", text="Tilt")
-		col.prop(light.Lumiere, "pitch", text="Pitch")
-		col.separator()
+
+			col.separator()
+
+			col = flow.column(align=False)
+			col.ui_units_x = 7
+			col = col.column(align=True)
+			col.prop(light.Lumiere, "rotation", text="Rotation")
+			col.prop(light.Lumiere, "tilt", text="Tilt")
+			col.prop(light.Lumiere, "pitch", text="Pitch")
+			col.separator()
 # -------------------------------------------------------------------- #
 
 class LAMP_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
@@ -1014,11 +1159,9 @@ class LAMP_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 
 	def draw(self, context):
 		light = context.active_object
-		mat = get_mat_name(light)
 		ies = light.data.node_tree.nodes["IES"]
 		colramp = light.data.node_tree.nodes["ColorRamp"]
 		img_texture = light.data.node_tree.nodes["Image Texture"]
-		blackbody_color = light.data.node_tree.nodes["Blackbody"].inputs[0]
 		falloff = light.data.node_tree.nodes["Light Falloff"].inputs[1]
 
 		layout = self.layout
@@ -1057,16 +1200,29 @@ class LAMP_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 				col.prop(light.Lumiere, "light_color", text="Color")
 			elif light.Lumiere.color_type == 'Blackbody':
 				col = col.column(align=False)
-				col.prop(blackbody_color, "default_value", text="Temperature")
+				col.prop(light.Lumiere, "blackbody", text="Temperature")
+
 			elif light.Lumiere.color_type == 'Gradient':
 				col.template_color_ramp(colramp, "color_ramp", expand=True)
-		else :
+
+		elif light.Lumiere.material_menu == 'Options':
 			col.prop(light.Lumiere, "falloff_type", text="Falloff")
 			col.prop(falloff, "default_value", text="Smooth")
 			col.prop(light.data.cycles, "cast_shadow", text='Shadow')
 			col.prop(light.data.cycles, "use_multiple_importance_sampling", text='MIS')
 			col.prop(light.cycles_visibility, "diffuse", text='Diffuse')
 			col.prop(light.cycles_visibility, "glossy", text='Specular')
+
+		else :
+			col.prop(light.Lumiere, "sky_texture", text="Sky texture")
+			if light.Lumiere.sky_texture:
+				world = bpy.data.worlds['Lumiere_world']
+				sky_color = world.node_tree.nodes["Sky Texture"]
+				strength = world.node_tree.nodes["Background"].inputs[1]
+				col.prop(sky_color, "turbidity", text="Turbidity")
+				col.prop(sky_color, "ground_albedo", text="Albedo")
+				col.prop(strength, "default_value", text="Strength")
+
 		col = flow.column(align=True)
 		col.ui_units_x = 7
 
