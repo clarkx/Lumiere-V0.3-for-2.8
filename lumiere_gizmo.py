@@ -184,7 +184,6 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 				self.spot_circle_widget.target_set_prop('offset', light.data, 'spot_size')
 				self.spot_circle_widget.matrix_basis = hit_matrix.normalized()
 
-
 			if light.Lumiere.light_type == "Sun" and light.Lumiere.reflect_angle =="Solar angle":
 				self.range_widget.matrix_basis = mat_rot.to_4x4()
 				self.hit_widget.hide = True
@@ -194,7 +193,7 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 			self.scale_xy_widget.matrix_basis = light.matrix_world.normalized() @ mat_rot_y
 			self.scale_x_widget.matrix_basis = light.matrix_world.normalized() @ mat_rot_x
 
-			if light.Lumiere.reflect_angle == "2" and not light.Lumiere.auto_bbox_center: #"Estimated"
+			if light.Lumiere.reflect_angle == "Estimated" and not light.Lumiere.auto_bbox_center:
 				mat_bbox = Matrix.Translation((light.Lumiere.bbox_center))
 				mat_bbox_x = Matrix.Rotation(radians(90.0), 4, 'Y')
 				mat_bbox_y = Matrix.Rotation(radians(-90.0), 4, 'X')

@@ -840,6 +840,7 @@ class POLL_PT_Lumiere:
 		else:
 			return False
 
+
 # -------------------------------------------------------------------- #
 
 class MAIN_PT_Lumiere(POLL_PT_Lumiere, Panel):
@@ -856,7 +857,6 @@ class MAIN_PT_Lumiere(POLL_PT_Lumiere, Panel):
 		row = col.row(align=True)
 		row.operator("lumiere.ray_operator", text="", emboss=False, icon="MOUSE_LMB_DRAG")
 		row.operator("lumiere.preset_popup", text="", emboss=False, icon="PRESET")
-		# row.separator()
 
 	def draw(self, context):
 		light = context.active_object
@@ -883,7 +883,6 @@ class MAIN_PT_Lumiere(POLL_PT_Lumiere, Panel):
 class MESH_OPTIONS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 	bl_idname = "MESH_OPTIONS_PT_Lumiere"
 	bl_label = "Options"
-	# bl_parent_id = "MAIN_PT_Lumiere"
 	bl_space_type = "VIEW_3D"
 	bl_region_type = "UI"
 	bl_category = "Lumiere"

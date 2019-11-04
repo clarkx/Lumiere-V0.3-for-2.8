@@ -39,7 +39,7 @@ def draw_callback_2d(self, context):
 		draw_shader(self, color, 1.0, 'TRI_FAN', tris_coords, size=1)
 
 		# Draw circle on boundingbox center of the targer object
-		if light.Lumiere.reflect_angle == "2" and light.parent:
+		if light.Lumiere.reflect_angle == "Estimated" and light.parent:
 			circle_hit = location_3d_to_region_2d(region, rv3d, light.Lumiere.bbox_center)
 			circle_radius = (circle_hit[0] + 3, circle_hit[1] + 3)
 			steps = 8
