@@ -56,7 +56,6 @@ from bpy.props import (
 	BoolProperty,
 	)
 
-
 # -------------------------------------------------------------------- #
 def update_type_light(self, context):
 	"""Change the selected light to a new one"""
@@ -103,7 +102,7 @@ def update_type_light(self, context):
 		mesh = bpy.data.meshes[light.data.name]
 
 		# Create a new light
-		light = create_lamp(name = values['old_name'], type = new_type)
+		light = create_lamp(type = new_type, name = values['old_name'])
 		light['Lumiere'] = lumiere_dict[values['old_name']]
 		light.location = lumiere_dict[values['old_name']]["location"]
 		light.rotation_euler = lumiere_dict[values['old_name']]["rotation"]
@@ -165,9 +164,43 @@ def set_tilt(self, tilt):
 	light.rotation_euler = rot.to_matrix().to_euler(light.rotation_mode)
 
 # -------------------------------------------------------------------- #
-def update_spherical_coordinate(self, context):
-	"""Rotate the light vertically (pitch) and horizontally around the targeted point"""
+def update_rotation_pitch(self,context):
+	"""Update the location and rotation of the sun based on time, latitude and longitude"""
 	light = bpy.data.objects[self.id_data.name]
+
+	update_spherical_coordinate(self,context,light=bpy.data.objects[self.id_data.name])
+
+	# Update the shadow location
+	if context.scene.is_running == False:
+		light.parent.hide_viewport = True
+		result, hit_location, _, _, _, _ = context.scene.ray_cast(context.view_layer, light.location, (Vector(light.Lumiere.hit) - light.location))
+
+		if result:
+			light.Lumiere.shadow = hit_location
+		else:
+			light.Lumiere.shadow = (0,0,0)
+		light.parent.hide_viewport = False
+
+
+# -------------------------------------------------------------------- #
+def update_link_to_light(self,context):
+	"""Update light position if light is link or not """
+
+	if context.scene.Lumiere.link_to_light:
+		if context.scene.Lumiere.env_type == "Sky":
+			update_env_hour(self,context)
+		context.scene.Lumiere.link_to_light.Lumiere.lock_img = True
+		context.scene.Lumiere.save_linked_light = context.scene.Lumiere.link_to_light
+	else :
+		context.scene.Lumiere.save_linked_light.Lumiere.lock_img = False
+		update_spherical_coordinate(self,context,light=context.scene.Lumiere.save_linked_light)
+
+# -------------------------------------------------------------------- #
+def update_spherical_coordinate(self, context, light=None):
+	"""Rotate the light vertically (pitch) and horizontally around the targeted point"""
+
+	if light is None:
+		light = bpy.data.objects[self.id_data.name]
 
 	r = light.Lumiere.range
 	# θ theta is azimuthal angle, the angle of the rotation around the z-axis (aspect)
@@ -193,14 +226,26 @@ def update_ratio(self,context):
 			light.Lumiere.save_energy = (light.scale[0] * light.scale[1]) * light.Lumiere.energy
 
 # -------------------------------------------------------------------- #
-def update_hour(self,context):
-	"""Update the scale xy of the light"""
-	light = bpy.data.objects[self.id_data.name]
+def update_light_hour(self,context):
+	"""Update the location and rotation of the sun based on time, latitude and longitude"""
+	if context.scene.Lumiere.link_to_light is not None:
+		light = context.scene.Lumiere.link_to_light
+		light.Lumiere.light_mode = "Sky"
 
-	getSunPosition(light, localTime = light.Lumiere.hour, latitude = light.Lumiere.latitude, longitude = light.Lumiere.longitude, northOffset = 0.00, utcZone = 0, month = light.Lumiere.month, day = light.Lumiere.day, year = light.Lumiere.year, distance = light.Lumiere.range)
+		light.location , light.rotation_euler = getSunPosition(localTime = context.scene.Lumiere.env_hour, latitude = context.scene.Lumiere.env_latitude, longitude = context.scene.Lumiere.env_longitude, northOffset = 0.00, utcZone = 0, month = context.scene.Lumiere.env_month, day = context.scene.Lumiere.env_day, year = context.scene.Lumiere.env_year, distance = light.Lumiere.range)
 
-	if light.Lumiere.sky_texture:
-		update_sky(self, context)
+		update_sky(self, context, light.rotation_euler, light)
+
+# -------------------------------------------------------------------- #
+def update_env_hour(self,context):
+	"""Update the location and rotation of the sun based on time, latitude and longitude"""
+
+	if context.scene.Lumiere.link_to_light is not None:
+		update_light_hour(self,context)
+	else:
+		location , rotation = getSunPosition(localTime = context.scene.Lumiere.env_hour, latitude = context.scene.Lumiere.env_latitude, longitude = context.scene.Lumiere.env_longitude, northOffset = 0.00, utcZone = 0, month = context.scene.Lumiere.env_month, day = context.scene.Lumiere.env_day, year = context.scene.Lumiere.env_year, distance = 1)
+
+		update_sky(self, context, rotation)
 
 # -------------------------------------------------------------------- #
 def update_lock_scale(self,context):
@@ -239,7 +284,6 @@ def update_scale_xy(self,context):
 		else:
 			light.data.shadow_soft_size = light.Lumiere.scale_xy
 
-
 	if light.scale[0] < 0.001:
 		light.scale[0] = 0.001
 	if light.scale[1] < 0.001:
@@ -270,7 +314,6 @@ def update_scale(self,context):
 		else:
 			light.data.shadow_soft_size = light.Lumiere.scale_xy
 
-
 	if light.scale[0] < 0.001:
 		light.scale[0] = 0.001
 	if light.scale[1] < 0.001:
@@ -281,8 +324,8 @@ def update_range(self,context):
 	"""Update the distance of the light from the object target"""
 	light = bpy.data.objects[self.id_data.name]
 
-	if light.Lumiere.light_type == "Sun" and light.Lumiere.reflect_angle == "Solar angle":
-		update_hour(self, context)
+	if light.Lumiere.light_mode == "Sky":
+		update_light_hour(self, context)
 	else:
 		light_loc = Vector(light.Lumiere.hit) + (Vector(light.Lumiere.direction) * light.Lumiere.range)
 		light.location = Vector((light_loc[0], light_loc[1], light_loc[2]))
@@ -293,9 +336,16 @@ def update_range(self,context):
 # -------------------------------------------------------------------- #
 def target_poll(self, object):
 	"""Target only this object"""
-	if object.data.name not in bpy.context.scene.collection.children['Lumiere'].all_objects:
+
+	if object.name not in bpy.context.scene.collection.children['Lumiere'].all_objects:
 		return object
 
+# -------------------------------------------------------------------- #
+def link_light_poll(self, object):
+	"""Link only this light"""
+
+	if object.name in bpy.context.scene.collection.children['Lumiere'].all_objects:
+		return object
 
 # -------------------------------------------------------------------- #
 def update_select_only(self, context):
@@ -322,28 +372,71 @@ def update_reflect_angle(self, context):
 	"""Update the reflect angle position"""
 	light = bpy.data.objects[self.id_data.name]
 
-	if light.Lumiere.light_type == "Sun" and light.Lumiere.reflect_angle == "Solar angle":
+	if light.Lumiere.light_mode == "Sky":
 		light.Lumiere.blackbody = 5300
-		update_hour(self, context)
+		update_light_hour(self, context)
 
 # -------------------------------------------------------------------- #
-def update_sky_texture(self, context):
+def update_env_texture_hdr(self, context):
 	"""Add a sky texture for the solar angle"""
-	light = bpy.data.objects[self.id_data.name]
+	light = context.object
 
-	if light.Lumiere.sky_texture:
-		create_world(self, context)
-		update_world()
-		if light.Lumiere.light_type == "Sun" and light.Lumiere.reflect_angle == "Solar angle":
-			light.Lumiere.energy = 3
-			light.Lumiere.scale_xy = 0.05
-			light.Lumiere.color_type = "Blackbody"
-			update_hour(self,context)
+	if context.scene.Lumiere.env_hdr_name == "":
+		context.scene.Lumiere.link_hdr_to_light = False
+		if context.scene.Lumiere.env_reflect_name == "":
+			context.scene.Lumiere.link_to_light = None
+
+	if context.scene.Lumiere.link_to_light and context.scene.Lumiere.link_hdr_to_light:
+		light = context.scene.Lumiere.link_to_light
+
+		diff = context.scene.Lumiere.env_hdr_rotation - context.scene.Lumiere.env_hdr_to_pxl
+		if diff < -360:
+			light.Lumiere.rotation = diff + 360
+		elif diff > 360:
+			light.Lumiere.rotation = diff - 360
 		else:
-			update_sky(self, context)
-	else:
-		bpy.data.worlds.remove(bpy.data.worlds['Lumiere_world'])
+			light.Lumiere.rotation = diff
 
+		if context.scene.Lumiere.env_reflect_name != "":
+			context.scene.Lumiere.env_reflect_rotation = context.scene.Lumiere.env_reflect_to_pxl - 90 + degrees(light.rotation_euler.z)
+	update_world(self, context)
+
+# -------------------------------------------------------------------- #
+def update_env_texture_reflect(self, context):
+	"""Add a sky texture for the solar angle"""
+
+	if context.scene.Lumiere.env_reflect_name == "":
+		context.scene.Lumiere.link_reflect_to_light = False
+		if context.scene.Lumiere.env_hdr_name == "":
+			context.scene.Lumiere.link_to_light = None
+
+	if context.scene.Lumiere.link_to_light and context.scene.Lumiere.link_reflect_to_light:
+		light = context.scene.Lumiere.link_to_light
+		diff = context.scene.Lumiere.env_reflect_rotation - context.scene.Lumiere.env_reflect_to_pxl
+		if diff < -360:
+			light.Lumiere.rotation = diff + 360
+		elif diff > 360:
+			light.Lumiere.rotation = diff - 360
+		else:
+			light.Lumiere.rotation = diff
+	update_world(self, context)
+
+# -------------------------------------------------------------------- #
+def update_env_type(self, context):
+	"""Add a sky texture for the solar angle"""
+
+	if not bpy.data.worlds.get("Lumiere_world"):
+		create_world(self, context)
+
+	if context.scene.Lumiere.env_type == "Sky":
+		update_env_hour(self,context)
+		update_world(self, context)
+
+	elif context.scene.Lumiere.env_type == "Texture":
+		update_world(self, context)
+
+	elif context.scene.Lumiere.env_type == "None":
+		bpy.data.worlds.remove(bpy.data.worlds['Lumiere_world'])
 
 # -------------------------------------------------------------------- #
 ## Items
@@ -360,31 +453,17 @@ def items_color_type(self, context):
 				("Reflector", "Reflector", "", 4),
 				}
 	else:
-		items = {
-				("Color", "Color", "", 0),
-				("Gradient", "Gradient", "", 1),
-				("Blackbody", "Blackbody", "", 2),
-				}
-
-	return items
-
-def items_reflect_angle(self, context):
-	"""Define the different items for the color choice of lights"""
-	light = bpy.data.objects[self.id_data.name]
-
-	if light.Lumiere.light_type == "Sun":
-		items = {
-				("Estimated", "Estimated", "", 0),
-				("Accurate", "Accurate", "", 1),
-				("Normal", "Normal", "", 2),
-				("Solar angle", "Solar angle", "", 3),
-				}
-	else:
-		items = {
-				("Estimated", "Estimated", "", 0),
-				("Accurate", "Accurate", "", 1),
-				("Normal", "Normal", "", 2),
-				}
+		if bpy.data.objects[self.id_data.name].Lumiere.light_type == "Sun":
+			items = {
+					("Color", "Color", "", 0),
+					("Blackbody", "Blackbody", "", 1),
+					}
+		else:
+			items = {
+					("Color", "Color", "", 0),
+					("Blackbody", "Blackbody", "", 1),
+					("Gradient", "Gradient", "", 2),
+					}
 
 	return items
 
@@ -423,6 +502,205 @@ class LightsProp(bpy.types.PropertyGroup):
 						description="Name of the light or group",
 						)
 # -------------------------------------------------------------------- #
+## Snene Properties
+class LumiereScn(bpy.types.PropertyGroup):
+#---Main menu options
+	main_menu : EnumProperty(name="Main menu",
+								description="Lighting options:\n"+
+								"\u2022 Light: Light options\n"+
+								"\u2022 World: World options\n"+
+								"Selected",
+								items = {
+										("Light", "Light", "Light", "LIGHT", 0),
+										("World", "World", "World","WORLD", 1),
+										},
+								default=None,
+								)
+
+#---List of environment options
+	env_type : EnumProperty(name="Environment",
+								description="Environment options:\n"+
+								"\u2022 Sky texture: Use the internal sky texture for background\n"+
+								"\u2022 Image texture: Use HDRI for background\n"+
+								"Selected",
+								items = {
+										("Sky", "Sky", "Sky", 0),
+										("Texture", "Environment", "Texture", 1),
+										("None", "None", "None", 2),
+										},
+								default = "None",
+								update=update_env_type,
+								)
+# TEXTURE
+
+#---Name of the light the environment is linked to
+	link_to_light : PointerProperty(
+							  type=bpy.types.Object,
+							  name="Name of the light the environment is linked to",
+							  poll=link_light_poll,
+							  update=update_link_to_light,
+							  )
+# HDRI
+#---Name of the environment image texture
+	env_hdr_name : StringProperty(
+							  name="Name of the environment image texture",
+							  update=update_env_texture_hdr,
+							  )
+
+#---Rotation of the environment image on Z axis.
+	env_hdr_rotation : FloatProperty(
+								  name="HDRI rotation",
+								  description="Rotation of the environment image on Z axis.",
+								  min= -360, max= 360,
+								  default=0,
+								  update=update_env_texture_hdr,
+								  )
+
+#---Rotation of the environment image on Z axis.
+	env_hdr_to_pxl : FloatProperty(
+								  name="HDRI to pixel rotation",
+								  description="Rotation of the environment image on Z axis.",
+								  min= -360, max= 360,
+								  default=0,
+								  )
+
+#---Lock the light to the Hdr image.
+	link_hdr_to_light : BoolProperty(name="Toggle lock Hdr",
+							   description="Lock the light to the Hdr image",
+							   default=False,
+							   # update=update_env_texture_reflect,
+							   )
+
+# REFLECTION
+#---Use another texture for reflection.
+	env_reflect_toggle : BoolProperty(name="Toggle reflection",
+							   description="Use another image texture for reflection",
+							   default=False,
+							   update=update_env_texture_reflect)
+
+#---Name of the background image texture
+	env_reflect_name : StringProperty(
+							  name="Name of the background / reflection image texture",
+							  update=update_env_texture_reflect,
+							  )
+
+#---Rotation of the reflection image on Z axis.
+	env_reflect_rotation : FloatProperty(
+								  name="Reflection rotation",
+								  description="Rotation of the reflection image on Z axis.",
+								  min= -360, max= 360,
+								  default=0,
+								  update=update_env_texture_reflect,
+								  )
+
+#---Rotation of the environment image on Z axis.
+	env_reflect_to_pxl : FloatProperty(
+								  name="HDRI to pixel rotation",
+								  description="Rotation of the environment image on Z axis.",
+								  min= -360, max= 360,
+								  default=0,
+								  )
+
+
+#---Lock the light to the reflection image.
+	link_reflect_to_light : BoolProperty(name="Toggle lock Hdr",
+							   description="Lock the light to the Hdr image",
+							   default=False,
+							   )
+
+# SKY
+#---Sun contribution
+	env_sun_contrib : FloatProperty(
+						   name="Sun",
+						   min=0, max=100,
+						   default=0,
+						   update=update_world)
+
+#---Sun size
+	env_sun_size : FloatProperty(
+						   name="Sun size",
+						   min=0, max=100,
+						   default=0,
+						   update=update_world)
+
+#---Sky contribution
+	env_sky_contrib : FloatProperty(
+						   name="Sky",
+						   min=0, max=1000,
+						   default=5,
+						   update=update_world)
+
+#---Sun position: Latitude
+	env_latitude : FloatProperty(
+						   name="Latitude",
+						   min=-89.9, max=89.9,
+						   default=48.87,
+						   update=update_env_hour)
+
+#---Sun position: Longitude
+	env_longitude : FloatProperty(
+						   name="Longitude",
+						   min=-180, max=180,
+						   default=2.67,
+						   update=update_env_hour)
+
+#---Sun position: Month
+	env_month : IntProperty(
+						   name="Month",
+						   min=1, max=12,
+						   default=time.localtime().tm_mon,
+						   update=update_env_hour)
+
+#---Sun position: Day
+	env_day : IntProperty(
+						   name="Day",
+						   min=1, max=31,
+						   default=time.localtime().tm_mday,
+						   update=update_env_hour)
+
+#---Sun position: Year
+	env_year : IntProperty(
+						   name="Year",
+						   min=1800, max=4000,
+						   default=time.localtime().tm_year,
+						   update=update_env_hour)
+
+#---Sun position: Hour
+	env_hour : FloatProperty(
+						   name="Hour",
+						   min=0, max=23.59,
+						   subtype='TIME',
+						   unit='TIME',
+						   default=time.localtime().tm_hour,
+						   update=update_env_hour,
+						   )
+
+#---List of lights
+	light_type : EnumProperty(name="Light type:",
+								description="List of lights sources:\n"+
+								"\u2022 Panel : Panel object with an emission shader\n"+
+								"\u2022 Point : Emit light equally in all directions\n"+
+								"\u2022 Sun : Emit light in a given direction\n"+
+								"\u2022 Spot : Emit light in a cone direction\n"+
+								"\u2022 Area : Emit light from a square or rectangular area\n"+
+								"\u2022 Import : Import your previous saved Light / Group lights\n"+
+								"Selected",
+								items =(
+								("Softbox", "Softbox", "", "MESH_PLANE", 0),
+								("Point", "Point", "", "LIGHT_POINT", 1),
+								("Sun", "Sun", "", "LIGHT_SUN", 2),
+								("Spot", "Spot", "", "LIGHT_SPOT", 3),
+								("Area", "Area", "", "LIGHT_AREA", 4),
+								),
+								default="Softbox",
+								)
+
+#---Name of the light linked before unlock
+	save_linked_light : PointerProperty(
+							  type=bpy.types.Object,
+							  name="Name of the light linked before unlock",
+							  )
+# -------------------------------------------------------------------- #
 ## Properties
 class LumiereObj(bpy.types.PropertyGroup):
 
@@ -431,12 +709,12 @@ class LumiereObj(bpy.types.PropertyGroup):
 						   name="Strength",
 						   description="Strength of the light",
 						   min=0.001, max=900000000000.0,
-						   soft_min=0.0, soft_max=100.0,
+						   soft_min=0.001, soft_max=100.0,
 						   default=10,
-						   precision=0,
-						   step=.2,
-						   subtype='NONE',
-						   unit='NONE',
+						   step=20000,
+						   precision=2,
+						   # subtype='DISTANCE',
+						   unit='POWER',
 						   update=update_mat
 						   )
 
@@ -444,10 +722,12 @@ class LumiereObj(bpy.types.PropertyGroup):
 	rotation : FloatProperty(
 						  name="Rotation",
 						  description="Rotate the light horizontally around the target",
-						  min=-0.1,
-						  max=360.1,
+						  min=-360,
+						  max=360,
+						  # min=-0.1,
+						  # max=360.1,
 						  step=20,
-						  update=update_spherical_coordinate,
+						  update=update_rotation_pitch,
 						  )
 
 #---Rotate the light horizontally
@@ -467,7 +747,7 @@ class LumiereObj(bpy.types.PropertyGroup):
 						  min=0.0,
 						  max=180,
 						  step=20,
-						  update=update_spherical_coordinate,
+						  update=update_rotation_pitch,
 						  )
 
 #---Scale the light
@@ -476,7 +756,9 @@ class LumiereObj(bpy.types.PropertyGroup):
 						  description="Scale the light",
 						  min=0.0001, max=100000,
 						  soft_min=0.001, soft_max=100.0,
-						  step=5,
+						  unit='LENGTH',
+						  # subtype='DISTANCE',
+						  step=.001,
 						  default=.5,
 						  precision=2,
 						  update=update_scale_xy,
@@ -488,6 +770,8 @@ class LumiereObj(bpy.types.PropertyGroup):
 						  description="Scale the light on x",
 						  min=0.0001, max=100000,
 						  soft_min=0.001, soft_max=100.0,
+						  unit='LENGTH',
+						  subtype='DISTANCE',
 						  step=1,
 						  default=.5,
 						  precision=2,
@@ -500,7 +784,9 @@ class LumiereObj(bpy.types.PropertyGroup):
 						  description="Scale the light on y",
 						  min=0.0001, max=100000,
 						  soft_min=0.001, soft_max=100.0,
-						  step=5,
+						  unit='LENGTH',
+						  subtype='DISTANCE',
+						  step=1,
 						  default=.5,
 						  precision=2,
 						  update=update_scale,
@@ -525,7 +811,11 @@ class LumiereObj(bpy.types.PropertyGroup):
 						  "\u2022 Normal : The light will be positioned in perpendicular to the normal of the face of the targeted object.\n"+\
 						  "\u2022 Estimated : The light will be positioned always facing the center of the bounding box.\n"+\
 						  "Selected",
-						  items = items_reflect_angle,
+						  items = (
+						  ("Estimated", "Estimated", "", 0),
+						  ("Accurate", "Accurate", "", 1),
+						  ("Normal", "Normal", "", 2),
+						  ),
 						  update = update_reflect_angle,
 						  default=None,
 						  )
@@ -579,6 +869,16 @@ class LumiereObj(bpy.types.PropertyGroup):
 							   name="bbox_center",
 							   description="BoundingBox center of the targeted object.",
 							   )
+
+#---List of modes the light can be linked to
+	light_mode : EnumProperty(name="Light mode",
+								items = {
+										("Sky", "Sky", "Sky", 0),
+										("Texture", "Texture", "Texture", 1),
+										("None", "None", "None", 2),
+										},
+								default = "None",
+								)
 # -------------------------------------------------------------------- #
 ## Materials
 
@@ -621,14 +921,12 @@ class LumiereObj(bpy.types.PropertyGroup):
 								"\u2022 Texture: Image texture emission\n"+
 								"\u2022 IES: Real world lights intensity distribution\n"+
 								"\u2022 Options: Define how light intensity decreases over distance and multiple important sample\n"+
-								"\u2022 World: Sky texture contribution\n"+
 								"Selected",
 								items = {
 										("Color", "Color", "Color", "COLOR", 0),
 										("Texture", "Texture", "Texture", "FILE_IMAGE", 1),
 										("IES", "IES", "IES","OUTLINER_OB_LIGHT", 2),
 										("Options", "Options", "Options","PREFERENCES", 3),
-										("World", "World", "World","WORLD", 4),
 										},
 								default=None,
 								)
@@ -727,6 +1025,12 @@ class LumiereObj(bpy.types.PropertyGroup):
 							description="Vector direction toward targeted object",
 							)
 
+#---Vector of the shadow
+	shadow : FloatVectorProperty(
+							name="Shadow",
+							description="Vector of the shadow",
+							)
+
 #---Used for ratio between scale and energy
 	save_energy : FloatProperty(
 						   name="Save energy",
@@ -762,53 +1066,9 @@ class LumiereObj(bpy.types.PropertyGroup):
 							   default=False,
 							   update=update_select_only)
 
-#---Sun position: Latitude
-	latitude : FloatProperty(
-						   name="Latitude",
-						   min=-89.9, max=89.9,
-						   default=48.87,
-						   update=update_hour)
-
-#---Sun position: Longitude
-	longitude : FloatProperty(
-						   name="Longitude",
-						   min=-180, max=180,
-						   default=2.67,
-						   update=update_hour)
-
-#---Sun position: Month
-	month : IntProperty(
-						   name="Month",
-						   min=1, max=12,
-						   default=time.localtime().tm_mon,
-						   update=update_hour)
-
-#---Sun position: Day
-	day : IntProperty(
-						   name="Day",
-						   min=1, max=31,
-						   default=time.localtime().tm_mday,
-						   update=update_hour)
-
-#---Sun position: Year
-	year : IntProperty(
-						   name="Year",
-						   min=1800, max=4000,
-						   default=time.localtime().tm_year,
-						   update=update_hour)
-
-#---Sun position: Hour
-	hour : FloatProperty(
-						   name="Hour",
-						   min=0, max=23.59,
-						   default=time.localtime().tm_hour,
-						   update=update_hour)
-
-#---Use sky texture with the solar angle.
-	sky_texture : BoolProperty(name="Sky texture",
-							   description="Use sky texture with the solar angle",
-							   default=False,
-							   update=update_sky_texture)
+#---Lock/Unlock the light to the environment
+	lock_img : BoolProperty(name="Lock/Unlock the light to the environment",
+							)
 
 # -------------------------------------------------------------------- #
 class ALL_LIGHTS_UL_list(bpy.types.UIList):
@@ -833,30 +1093,313 @@ class POLL_PT_Lumiere:
 
 	@classmethod
 	def poll(cls, context):
-		if (context.active_object is not None):
-			if ("Lumiere" in str(context.active_object.users_collection)) \
-			and len(list(context.scene.collection.children['Lumiere'].objects)) > 0 :
-				return context.view_layer.objects.active.name in context.scene.collection.children['Lumiere'].all_objects
+		if context.scene.Lumiere.main_menu=="Light":
+			if (context.active_object is not None):
+				if ("Lumiere" in str(context.active_object.users_collection)) \
+				and len(list(context.scene.collection.children['Lumiere'].objects)) > 0 :
+					return context.view_layer.objects.active.name in context.scene.collection.children['Lumiere'].all_objects
+			else:
+				return False
 		else:
-			return False
-
+			return True
 
 # -------------------------------------------------------------------- #
+class WORLD_PT_Lumiere_hdr_link(Panel):
+	bl_label = "Link options"
+	bl_space_type = 'VIEW_3D'
+	bl_region_type = 'HEADER'
 
-class MAIN_PT_Lumiere(POLL_PT_Lumiere, Panel):
-	bl_idname = "MAIN_PT_Lumiere"
-	bl_label = "Main"
+	@classmethod
+	def poll(cls, context):
+		return context.scene.Lumiere.env_hdr_name != "" and context.scene.Lumiere.link_to_light
+
+	def draw(self, context):
+		layout = self.layout
+		scene = context.scene
+		col = layout.column()
+
+		if context.scene.Lumiere.link_to_light:
+			light = context.scene.Lumiere.link_to_light
+
+			if scene.Lumiere.env_hdr_name != "":
+				op = col.operator("lumiere.select_pixel", text ='Align to Env', icon='EYEDROPPER')
+				op.light = light.name
+				op.img_name = context.scene.Lumiere.env_hdr_name
+				op.img_type = "Hdr"
+				op.img_size_x = bpy.data.images[context.scene.Lumiere.env_hdr_name].size[0]
+				op.img_size_y = bpy.data.images[context.scene.Lumiere.env_hdr_name].size[1]
+
+# -------------------------------------------------------------------- #
+class WORLD_PT_Lumiere_refl_link(Panel):
+	bl_label = "Link options"
+	bl_space_type = 'VIEW_3D'
+	bl_region_type = 'HEADER'
+
+	@classmethod
+	def poll(cls, context):
+		return context.scene.Lumiere.env_reflect_name != "" and context.scene.Lumiere.link_to_light
+
+	def draw(self, context):
+		layout = self.layout
+		scene = context.scene
+		col = layout.column()
+		if context.scene.Lumiere.link_to_light:
+			light = context.scene.Lumiere.link_to_light
+
+			if scene.Lumiere.env_reflect_name != "":
+				op = col.operator("lumiere.select_pixel", text ='Align to Reflect', icon='EYEDROPPER')
+				op.light = light.name
+				op.img_name = context.scene.Lumiere.env_reflect_name
+				op.img_type = "Reflect"
+				op.img_size_x = bpy.data.images[context.scene.Lumiere.env_reflect_name].size[0]
+				op.img_size_y = bpy.data.images[context.scene.Lumiere.env_reflect_name].size[1]
+
+# -------------------------------------------------------------------- #
+class WORLD_PT_Lumiere_hdr_options(Panel):
+	bl_label = "Environment texture options"
+	bl_space_type = 'VIEW_3D'
+	bl_region_type = 'HEADER'
+
+	def draw(self, context):
+		layout = self.layout
+		# layout.use_property_split = True
+		scene = context.scene
+		world = bpy.data.worlds['Lumiere_world']
+		env_hdr_bright = world.node_tree.nodes["Bright/Contrast"].inputs[1]
+		env_hdr_contrast = world.node_tree.nodes["Bright/Contrast"].inputs[2]
+		env_hdr_gamma = world.node_tree.nodes["Gamma"].inputs[1]
+		env_hdr_hue = world.node_tree.nodes["Hdr hue"].inputs[0]
+		env_hdr_sat = world.node_tree.nodes["Hdr hue"].inputs[1]
+		exposure = world.node_tree.nodes['Hdr exposure value'].outputs[0]
+
+		col = layout.column()
+		col.prop(env_hdr_bright, "default_value", text="Brightness")
+		col.prop(env_hdr_contrast, "default_value", text="Contrast")
+		col.prop(env_hdr_gamma, "default_value", text="Gamma")
+		col.prop(env_hdr_hue, "default_value", text="Hue")
+		col.prop(env_hdr_sat, "default_value", text="Saturation")
+		col.prop(exposure, "default_value", text="Exposure")
+
+# -------------------------------------------------------------------- #
+class WORLD_PT_Lumiere_reflect_options(Panel):
+	bl_label = "Reflection options"
+	bl_space_type = 'VIEW_3D'
+	bl_region_type = 'HEADER'
+
+	def draw(self, context):
+		layout = self.layout
+		scene = context.scene
+		world = bpy.data.worlds['Lumiere_world']
+		env_reflect_blur = world.node_tree.nodes["Mix.001"].inputs[0]
+		env_reflect_bright = world.node_tree.nodes["Bright/Contrast.001"].inputs[1]
+		env_reflect_contrast = world.node_tree.nodes["Bright/Contrast.001"].inputs[2]
+		env_reflect_gamma = world.node_tree.nodes["Gamma.001"].inputs[1]
+		env_reflect_hue = world.node_tree.nodes["Reflect hue"].inputs[0]
+		env_reflect_sat = world.node_tree.nodes["Reflect hue"].inputs[1]
+		exposure = world.node_tree.nodes['Reflect exposure value'].outputs[0]
+		col = layout.column()
+		col.prop(env_reflect_bright, "default_value", text="Brightness")
+		col.prop(env_reflect_contrast, "default_value", text="Contrast")
+		col.prop(env_reflect_gamma, "default_value", text="Gamma")
+		col.prop(env_reflect_hue, "default_value", text="Hue")
+		col.prop(env_reflect_sat, "default_value", text="Saturation")
+		col.prop(exposure, "default_value", text="Exposure")
+		col.prop(env_reflect_blur, "default_value", text="Blur")
+
+		col = layout.column()
+
+# -------------------------------------------------------------------- #
+class MAINWORLD_PT_Lumiere(Panel):
+	bl_idname = "MAINWORLD_PT_Lumiere"
+	bl_label = "World:"
 	bl_space_type = "VIEW_3D"
 	bl_region_type = "UI"
 	bl_category = "Lumiere"
 
+	def light_in_scene(self, context):
+		if (context.active_object is not None) and "Lumiere" in str(context.active_object.users_collection) and len(list(context.scene.collection.children['Lumiere'].objects)) > 0:
+			return True
+		else:
+			return False
 
 	def draw_header_preset(self, context):
+		scene = context.scene
+		layout = self.layout
+		col = layout.column(align=False)
+		row = col.row(align=True)
+		if self.light_in_scene(context):
+			row.operator("lumiere.ray_operator", text="", emboss=False, icon="MOUSE_LMB_DRAG")
+		row.prop(scene.Lumiere, "main_menu", text="", expand=True)
+		row.operator("lumiere.preset_popup", text="", emboss=False, icon="PRESET")
+
+
+	@classmethod
+	def poll(cls, context):
+		return context.scene.Lumiere.main_menu=="World"
+
+	def draw(self, context):
+		scene = context.scene
+		layout = self.layout
+		layout.use_property_split = True # Active single-column layout
+		layout.use_property_decorate = False  # No animation.
+		flow = layout.grid_flow(row_major=True, columns=0, even_columns=True, even_rows=False, align=True)
+		col = flow.column(align=False)
+		col.ui_units_x = 7
+		row = col.row(align=True)
+		col.prop(scene.Lumiere, "env_type", text="")
+		if scene.Lumiere.env_type == "Texture":
+			if context.scene.Lumiere.env_hdr_name !="" or context.scene.Lumiere.env_reflect_name !="" and len(list(context.scene.collection.children['Lumiere'].objects)) > 0:
+				row = col.row(align=True)
+				row.label(text="Link to :")
+				row.prop(context.scene.Lumiere, "link_to_light", text="")
+
+		elif scene.Lumiere.env_type == "Sky":
+			world = bpy.data.worlds['Lumiere_world']
+			sky_color = world.node_tree.nodes["Sky Texture"]
+			col.prop(context.scene.Lumiere, "env_sun_contrib", text="Sun contribution")
+			col.prop(context.scene.Lumiere, "env_sun_size", text="Sun size")
+			col.prop(context.scene.Lumiere, "env_sky_contrib", text="Sky contribution")
+			col.separator()
+			col.prop(sky_color, "turbidity", text="Turbidity")
+			col.prop(sky_color, "ground_albedo", text="Albedo")
+			col.separator()
+			col.prop(context.scene.Lumiere, "env_latitude", text="Latitude")
+			col.prop(context.scene.Lumiere, "env_longitude", text="Longitude")
+			col.separator()
+			col.prop(context.scene.Lumiere, "env_hour", text="Hour")
+			col.prop(context.scene.Lumiere, "env_day", text="Day")
+			col.prop(context.scene.Lumiere, "env_month", text="Month")
+			col.prop(context.scene.Lumiere, "env_year", text="Year")
+			col.separator()
+			if len(list(context.scene.collection.children['Lumiere'].objects)) > 0:
+				row = col.row(align=True)
+				row.label(text="Link to :")
+				row.prop(context.scene.Lumiere, "link_to_light", text="")
+# -------------------------------------------------------------------- #
+class WORLD_PT_Lumiere_environment(Panel):
+	bl_idname = "WORLD_PT_Lumiere_environment"
+	bl_label = "Environment:"
+	bl_space_type = "VIEW_3D"
+	bl_region_type = "UI"
+	bl_category = "Lumiere"
+
+	def light_in_scene(self, context):
+		if (context.active_object is not None) and "Lumiere" in str(context.active_object.users_collection) and len(list(context.scene.collection.children['Lumiere'].objects)) > 0:
+			return True
+		else:
+			return False
+
+	def draw_header_preset(self, context):
+		scene = context.scene
+		layout = self.layout
+		col = layout.column(align=False)
+		row = col.row(align=True)
+		row.popover(panel="WORLD_PT_Lumiere_hdr_link", icon='LINKED' if context.scene.Lumiere.link_hdr_to_light else 'UNLINKED', text="")
+
+	@classmethod
+	def poll(cls, context):
+		return context.scene.Lumiere.main_menu=="World" and context.scene.Lumiere.env_type=="Texture"
+
+	def draw(self, context):
+		scene = context.scene
+		layout = self.layout
+		layout.use_property_split = True # Active single-column layout
+		layout.use_property_decorate = False  # No animation.
+		flow = layout.grid_flow(row_major=True, columns=0, even_columns=True, even_rows=False, align=True)
+		col = flow.column(align=False)
+		col.ui_units_x = 7
+		row = col.row(align=True)
+		if scene.Lumiere.env_type == "Texture":
+			row = col.row(align=True)
+			world = bpy.data.worlds['Lumiere_world']
+			env_hdr_strength = world.node_tree.nodes["Hdr background"].inputs[1]
+			env_hdr_color = world.node_tree.nodes["Hdr background"].inputs[0]
+			env_hdr_map = world.node_tree.nodes["Mapping"].inputs[2]
+			row = col.row(align=True)
+			row.prop_search(scene.Lumiere, "env_hdr_name", bpy.data, "images", text="")
+			row.operator("image.open",text='', icon='FILEBROWSER')
+			row.popover(panel="WORLD_PT_Lumiere_hdr_options", icon='PREFERENCES', text="")
+			col.separator()
+			col.prop(env_hdr_strength, "default_value", text="Strength")
+			if scene.Lumiere.env_hdr_name != "":
+				row = col.row(align=True)
+				row.prop(scene.Lumiere, "env_hdr_rotation", text="Rotation")
+			else:
+				col.prop(env_hdr_color, "default_value", text="Color")
+
+# -------------------------------------------------------------------- #
+class WORLD_PT_Lumiere_reflection(Panel):
+	bl_idname = "WORLD_PT_Lumiere_reflection"
+	bl_label = "Reflection:"
+	bl_space_type = "VIEW_3D"
+	bl_region_type = "UI"
+	bl_category = "Lumiere"
+
+	def light_in_scene(self, context):
+		if (context.active_object is not None) and "Lumiere" in str(context.active_object.users_collection) and len(list(context.scene.collection.children['Lumiere'].objects)) > 0:
+			return True
+		else:
+			return False
+
+	def draw_header_preset(self, context):
+		scene = context.scene
+		layout = self.layout
+		col = layout.column(align=False)
+		row = col.row(align=True)
+		row.prop(scene.Lumiere, "env_reflect_toggle", text="")
+		row.popover(panel="WORLD_PT_Lumiere_refl_link", icon='LINKED' if context.scene.Lumiere.link_reflect_to_light else 'UNLINKED', text="")
+
+	@classmethod
+	def poll(cls, context):
+		return context.scene.Lumiere.main_menu=="World" and context.scene.Lumiere.env_type=="Texture"
+
+	def draw(self, context):
+		scene = context.scene
+		layout = self.layout
+		layout.use_property_split = True # Active single-column layout
+		layout.use_property_decorate = False  # No animation.
+		flow = layout.grid_flow(row_major=True, columns=0, even_columns=True, even_rows=False, align=True)
+		col = flow.column(align=False)
+		col.ui_units_x = 7
+		if scene.Lumiere.env_reflect_toggle:
+			world = bpy.data.worlds['Lumiere_world']
+			env_reflect_strength = world.node_tree.nodes["Reflect background"].inputs[1]
+			env_reflect_color = world.node_tree.nodes["Reflect background"].inputs[0]
+			row = col.row(align=True)
+			row.prop_search(scene.Lumiere, "env_reflect_name", bpy.data, "images", text="")
+			row.operator("image.open",text='', icon='FILEBROWSER')
+			row.popover(panel="WORLD_PT_Lumiere_reflect_options", icon='PREFERENCES', text="")
+			col.separator()
+			col.prop(env_reflect_strength, "default_value", text="Strength")
+			if scene.Lumiere.env_reflect_name != "":
+				row2 = col.row(align=True)
+				if context.scene.Lumiere.link_to_light and scene.Lumiere.env_hdr_name != "":
+					row2.enabled = False
+				row2.prop(scene.Lumiere, "env_reflect_rotation", text="Rotation")
+			else:
+				col.prop(env_reflect_color, "default_value", text="Color")
+
+# -------------------------------------------------------------------- #
+class MAIN_PT_Lumiere(POLL_PT_Lumiere, Panel):
+	bl_idname = "MAIN_PT_Lumiere"
+	bl_label = "Light:"
+	bl_space_type = "VIEW_3D"
+	bl_region_type = "UI"
+	bl_category = "Lumiere"
+
+	def draw_header_preset(self, context):
+		scene = context.scene
 		layout = self.layout
 		col = layout.column(align=False)
 		row = col.row(align=True)
 		row.operator("lumiere.ray_operator", text="", emboss=False, icon="MOUSE_LMB_DRAG")
+		row.prop(scene.Lumiere, "main_menu", text="", expand=True)
 		row.operator("lumiere.preset_popup", text="", emboss=False, icon="PRESET")
+
+	@classmethod
+	def poll(cls, context):
+		if (POLL_PT_Lumiere.poll(context)) :
+			return context.scene.Lumiere.main_menu=="Light"
 
 	def draw(self, context):
 		light = context.active_object
@@ -889,7 +1432,7 @@ class MESH_OPTIONS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 
 	@classmethod
 	def poll(cls, context):
-		if (POLL_PT_Lumiere.poll(context)) :
+		if (POLL_PT_Lumiere.poll(context)) and context.scene.Lumiere.main_menu=="Light" :
 			return context.view_layer.objects.active.type == 'MESH'
 
 	def draw_header_preset(self, context):
@@ -910,7 +1453,7 @@ class MESH_OPTIONS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 		flow = layout.grid_flow(row_major=True, columns=0, even_columns=True, even_rows=False, align=True)
 		col = flow.column(align=False)
 		col.ui_units_x = 7
-		col = col.column(align=True)
+		col = col.column(align=False)
 		col.prop(light.Lumiere, "target", text="Target")
 		col.prop(light.Lumiere, "range", text="Range")
 		col.separator()
@@ -932,13 +1475,17 @@ class MESH_OPTIONS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 			row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_UNLOCKED')
 		col.prop(light.Lumiere, "ratio", text="Keep ratio")
 
-		col = flow.column(align=False)
-		col.ui_units_x = 7
-		col = col.column(align=True)
-		col.prop(light.Lumiere, "rotation", text="Rotation")
-		col.prop(light.Lumiere, "tilt", text="Tilt")
-		col.prop(light.Lumiere, "pitch", text="Pitch")
 		col.separator()
+		col = flow.column(align=False)
+		col2 = flow.column(align=False)
+		if light.Lumiere.lock_img == True :
+			row = col.row(align=True)
+			row.prop(context.scene.Lumiere, "link_to_light", text="Unlock to use:")
+			col2.enabled = False
+		col2.prop(light.Lumiere, "rotation", text="Rotation")
+		col2.prop(light.Lumiere, "tilt", text="Tilt")
+		col2.prop(light.Lumiere, "pitch", text="Pitch")
+		col2.separator()
 
 		col = flow.column(align=False)
 		col.ui_units_x = 7
@@ -958,7 +1505,6 @@ class MESH_OPTIONS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 		col.separator()
 
 # -------------------------------------------------------------------- #
-
 class MESH_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 	bl_idname = "MESH_MATERIALS_PT_Lumiere"
 	bl_label = "Material"
@@ -968,7 +1514,7 @@ class MESH_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 
 	@classmethod
 	def poll(cls, context):
-		if (POLL_PT_Lumiere.poll(context)) :
+		if (POLL_PT_Lumiere.poll(context)) and context.scene.Lumiere.main_menu=="Light" :
 			return context.view_layer.objects.active.type == 'MESH'
 
 	def draw_header_preset(self, context):
@@ -983,6 +1529,7 @@ class MESH_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 		light = context.active_object
 		mat = get_mat_name(light)
 		colramp = mat.node_tree.nodes['ColorRamp']
+		falloff_colramp = mat.node_tree.nodes['Falloff colRamp']
 		img_texture = mat.node_tree.nodes["Image Texture"]
 		invert = mat.node_tree.nodes["Texture invert"].inputs[0]
 		falloff = mat.node_tree.nodes["Light Falloff"].inputs[1]
@@ -1026,22 +1573,11 @@ class MESH_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 			col.prop(light.Lumiere, "ies_reflect_only", text="Reflection only")
 
 		elif light.Lumiere.material_menu == 'Options':
+			col.template_color_ramp(falloff_colramp, "color_ramp", expand=True)
+			col.separator()
 			col.prop(light.Lumiere, "falloff_type", text="Falloff")
 			col.prop(falloff, "default_value", text="Smooth")
 			col.prop(mat.cycles, "sample_as_light", text='MIS')
-
-		else :
-			col.prop(light.Lumiere, "sky_texture", text="Sky texture")
-			if light.Lumiere.sky_texture:
-				world = bpy.data.worlds['Lumiere_world']
-				sky_color = world.node_tree.nodes["Sky Texture"]
-				strength = world.node_tree.nodes["Background"].inputs[1]
-				col.prop(sky_color, "turbidity", text="Turbidity")
-				col.prop(sky_color, "ground_albedo", text="Albedo")
-				col.prop(strength, "default_value", text="Strength")
-
-		col = flow.column(align=True)
-		col.ui_units_x = 7
 
 # -------------------------------------------------------------------- #
 ## Lamp Sub panel
@@ -1055,7 +1591,7 @@ class LAMP_OPTIONS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 
 	@classmethod
 	def poll(cls, context):
-		if (POLL_PT_Lumiere.poll(context)) :
+		if (POLL_PT_Lumiere.poll(context)) and context.scene.Lumiere.main_menu=="Light" :
 			return context.view_layer.objects.active.type == 'LIGHT'
 
 	def draw_header_preset(self, context):
@@ -1076,7 +1612,7 @@ class LAMP_OPTIONS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 		flow = layout.grid_flow(row_major=True, columns=0, even_columns=True, even_rows=False, align=True)
 		col = flow.column(align=False)
 		col.ui_units_x = 7
-		col = col.column(align=True)
+		col = col.column(align=False)
 		col.prop(light.Lumiere, "target", text="Target")
 		col.prop(light.Lumiere, "range", text="Range")
 		col.separator()
@@ -1085,55 +1621,49 @@ class LAMP_OPTIONS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 		col.ui_units_x = 7
 		col = col.column(align=True)
 
-		if light.data.type == "SUN" and light.Lumiere.reflect_angle == "Solar angle":
-			col.prop(light.Lumiere, "scale_xy", text="Shadow")
-			col.prop(light.Lumiere, "hour", text="Hour")
-			col.prop(light.Lumiere, "latitude", text="Latitude")
-			col.prop(light.Lumiere, "longitude", text="Longitude")
-			col.prop(light.Lumiere, "month", text="Month")
-			col.prop(light.Lumiere, "day", text="Day")
-			col.prop(light.Lumiere, "year", text="Year")
-		else:
-			if light.data.type == "AREA":
-				col.prop(light.data, "shape", text="Shape")
-				col = col.column(align=True)
-				row = col.row(align=True)
-				if light.data.shape in ('SQUARE', 'DISK'):
-					row.prop(light.Lumiere, "scale_xy", text="Scale xy")
-				else:
-					if light.Lumiere.lock_scale:
-						row.prop(light.Lumiere, "scale_xy", text="Scale xy")
-						row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_LOCKED')
-
-					else:
-						row = col.row(align=True)
-						row.prop(light.Lumiere, "scale_x", text="Scale x")
-						row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_UNLOCKED')
-						row = col.row(align=True)
-						row.prop(light.Lumiere, "scale_y", text="Scale y")
-						row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_UNLOCKED')
-
-			elif light.data.type == "SPOT":
-				col.prop(light.data, "spot_size", text="Cone Size")
-				col.prop(light.data, "spot_blend", text="Cone Blend")
-				col.prop(light.Lumiere, "scale_xy", text="Shadow")
-
-			elif light.data.type == "POINT":
-				col.prop(light.Lumiere, "scale_xy", text="Shadow")
-
-			elif light.data.type == "SUN":
-				col.prop(light.Lumiere, "scale_xy", text="Shadow")
-
-
-			col.separator()
-
-			col = flow.column(align=False)
-			col.ui_units_x = 7
+		if light.data.type == "AREA":
+			col.prop(light.data, "shape", text="Shape")
 			col = col.column(align=True)
-			col.prop(light.Lumiere, "rotation", text="Rotation")
-			col.prop(light.Lumiere, "tilt", text="Tilt")
-			col.prop(light.Lumiere, "pitch", text="Pitch")
-			col.separator()
+			row = col.row(align=True)
+			if light.data.shape in ('SQUARE', 'DISK'):
+				row.prop(light.Lumiere, "scale_xy", text="Scale xy")
+			else:
+				if light.Lumiere.lock_scale:
+					row.prop(light.Lumiere, "scale_xy", text="Scale xy")
+					row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_LOCKED')
+
+				else:
+					row = col.row(align=True)
+					row.prop(light.Lumiere, "scale_x", text="Scale x")
+					row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_UNLOCKED')
+					row = col.row(align=True)
+					row.prop(light.Lumiere, "scale_y", text="Scale y")
+					row.prop(light.Lumiere, "lock_scale", text="", emboss=False, icon='DECORATE_UNLOCKED')
+
+		elif light.data.type == "SPOT":
+			col.prop(light.data, "spot_size", text="Cone Size")
+			col.prop(light.data, "spot_blend", text="Cone Blend")
+			col.prop(light.Lumiere, "scale_xy", text="Shadow")
+
+		elif light.data.type == "POINT":
+			col.prop(light.Lumiere, "scale_xy", text="Shadow")
+
+		elif light.data.type == "SUN":
+			col.prop(light.Lumiere, "scale_xy", text="Shadow")
+
+		col.separator()
+		col = flow.column(align=False)
+		col.ui_units_x = 7
+		col = col.column(align=True)
+		col2 = flow.column(align=False)
+		if light.Lumiere.lock_img == True :
+			row = col.row(align=True)
+			row.prop(context.scene.Lumiere, "link_to_light", text="Unlock to use:")
+			col2.enabled = False
+		col2.prop(light.Lumiere, "rotation", text="Rotation")
+		col2.prop(light.Lumiere, "tilt", text="Tilt")
+		col2.prop(light.Lumiere, "pitch", text="Pitch")
+		col2.separator()
 # -------------------------------------------------------------------- #
 
 class LAMP_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
@@ -1145,7 +1675,7 @@ class LAMP_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 
 	@classmethod
 	def poll(cls, context):
-		if (POLL_PT_Lumiere.poll(context)) :
+		if (POLL_PT_Lumiere.poll(context)) and context.scene.Lumiere.main_menu=="Light":
 			return context.view_layer.objects.active.type == 'LIGHT'
 
 	def draw_header_preset(self, context):
@@ -1162,6 +1692,7 @@ class LAMP_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 		colramp = light.data.node_tree.nodes["ColorRamp"]
 		img_texture = light.data.node_tree.nodes["Image Texture"]
 		falloff = light.data.node_tree.nodes["Light Falloff"].inputs[1]
+		falloff_colramp = light.data.node_tree.nodes["Falloff colRamp"]
 
 		layout = self.layout
 		layout.use_property_split = True # Active single-column layout
@@ -1169,7 +1700,7 @@ class LAMP_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 		flow = layout.grid_flow(row_major=True, columns=0, even_columns=True, even_rows=False, align=True)
 		col = flow.column(align=False)
 		col.ui_units_x = 7
-		col = col.column(align=True)
+		col = col.column()
 		if light.Lumiere.material_menu == "Texture":
 			row = col.row(align=True)
 			row.prop_search(light.Lumiere, "img_name", bpy.data, "images", text="")
@@ -1190,7 +1721,6 @@ class LAMP_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 			op.filter_text = False
 			op.filter_folder = False
 			col.prop(light.Lumiere, "ies_scale", text="Scale")
-
 		elif light.Lumiere.material_menu == 'Color':
 			col.prop(light.Lumiere, "color_type", text="", )
 
@@ -1205,32 +1735,24 @@ class LAMP_MATERIALS_PT_Lumiere(POLL_PT_Lumiere, Panel):
 				col.template_color_ramp(colramp, "color_ramp", expand=True)
 
 		elif light.Lumiere.material_menu == 'Options':
-			col.prop(light.Lumiere, "falloff_type", text="Falloff")
-			col.prop(falloff, "default_value", text="Smooth")
-			col.prop(light.data.cycles, "cast_shadow", text='Shadow')
-			col.prop(light.data.cycles, "use_multiple_importance_sampling", text='MIS')
-			col.prop(light.cycles_visibility, "diffuse", text='Diffuse')
-			col.prop(light.cycles_visibility, "glossy", text='Specular')
-
-		else :
-			col.prop(light.Lumiere, "sky_texture", text="Sky texture")
-			if light.Lumiere.sky_texture:
-				world = bpy.data.worlds['Lumiere_world']
-				sky_color = world.node_tree.nodes["Sky Texture"]
-				strength = world.node_tree.nodes["Background"].inputs[1]
-				col.prop(sky_color, "turbidity", text="Turbidity")
-				col.prop(sky_color, "ground_albedo", text="Albedo")
-				col.prop(strength, "default_value", text="Strength")
-
-		col = flow.column(align=True)
-		col.ui_units_x = 7
+			if light.data.type != "SUN":
+				col.template_color_ramp(falloff_colramp, "color_ramp", expand=True)
+				col.separator()
+				col.prop(light.Lumiere, "falloff_type", text="Falloff")
+				col.prop(falloff, "default_value", text="Smooth")
+				col.separator()
+			flow = col.column_flow()
+			flow.prop(light.data.cycles, "cast_shadow", text='Shadow')
+			flow.prop(light.data.cycles, "use_multiple_importance_sampling", text='MIS')
+			flow.prop(light.cycles_visibility, "diffuse", text='Diffuse')
+			flow.prop(light.cycles_visibility, "glossy", text='Specular')
 
 
 # -------------------------------------------------------------------- #
 ## Operator
 class OPERATOR_PT_Lumiere(Panel):
 	bl_idname = "OPERATOR_PT_Lumiere"
-	bl_label = "Lumiere"
+	bl_label = "Light:"
 	bl_space_type = "VIEW_3D"
 	bl_region_type = "UI"
 	bl_category = "Lumiere"
@@ -1241,29 +1763,49 @@ class OPERATOR_PT_Lumiere(Panel):
 			if ("Lumiere" in str(context.active_object.users_collection)) \
 			and len(list(context.scene.collection.children['Lumiere'].objects)) > 0 :
 				return context.view_layer.objects.active.name not in context.scene.collection.children['Lumiere'].all_objects
-		return True
-
+		return context.scene.Lumiere.main_menu=="Light"
 
 	def draw_header_preset(self, context):
 		layout = self.layout
 		col = layout.column(align=False)
 		row = col.row(align=True)
+		row.prop(context.scene.Lumiere, "main_menu", text="", expand=True)
 		row.operator("lumiere.preset_popup", text="", emboss=False, icon="PRESET")
 
 	def draw(self, context):
-
 		layout = self.layout
 		layout.use_property_split = True # Active single-column layout
 		layout.use_property_decorate = False  # No animation.
 		flow = layout.grid_flow(row_major=True, columns=0, even_columns=True, even_rows=False, align=True)
 		col = flow.column(align=True)
 		col.ui_units_x = 7
-		col.operator("lumiere.ray_operator", text="CREATE", icon='BLANK1')
+		col.prop(context.scene.Lumiere, "light_type",  text="", expand=False)
+		col.separator()
+		op_ray = col.operator("lumiere.ray_operator", text="CREATE", icon='BLANK1')
+		op_ray.light_type = context.scene.Lumiere.light_type
+
+
+# -------------------------------------------------------------------- #
+from bpy.app.handlers import persistent
+@persistent
+def anim(self):
+
+	# bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+	bpy.context.scene.Lumiere.env_hour = 5 + (bpy.context.scene.frame_current * 0.05)
+	bpy.context.view_layer.update()
+	# bpy.context.scene.frame_set(bpy.context.scene.frame_current)
 
 # -------------------------------------------------------------------- #
 ## Register
 classes = [
 	ALL_LIGHTS_UL_list,
+	MAINWORLD_PT_Lumiere,
+	WORLD_PT_Lumiere_environment,
+	WORLD_PT_Lumiere_reflection,
+	WORLD_PT_Lumiere_hdr_link,
+	WORLD_PT_Lumiere_refl_link,
+	WORLD_PT_Lumiere_hdr_options,
+	WORLD_PT_Lumiere_reflect_options,
 	MAIN_PT_Lumiere,
 	MESH_OPTIONS_PT_Lumiere,
 	MESH_MATERIALS_PT_Lumiere,
@@ -1271,6 +1813,7 @@ classes = [
 	LAMP_MATERIALS_PT_Lumiere,
 	OPERATOR_PT_Lumiere,
 	LumiereObj,
+	LumiereScn,
 	LightsProp,
 	LumiereAddonPreferences,
 	]
@@ -1280,7 +1823,9 @@ def register():
 	from bpy.utils import register_class
 	for cls in classes:
 		register_class(cls)
+	bpy.app.handlers.frame_change_post.append(anim)
 	bpy.types.Object.Lumiere = bpy.props.PointerProperty(type=LumiereObj)
+	bpy.types.Scene.Lumiere = bpy.props.PointerProperty(type=LumiereScn)
 	bpy.types.Scene.Lumiere_lights_list = bpy.props.CollectionProperty(type=LightsProp)
 	bpy.types.Scene.Lumiere_lights_list_index = bpy.props.IntProperty(name = "Index", default = 0)
 
@@ -1289,6 +1834,8 @@ def unregister():
 	from bpy.utils import unregister_class
 	for cls in reversed(classes):
 		unregister_class(cls)
+	bpy.app.handlers.frame_change_post.remove(anim)
 	del bpy.types.Object.Lumiere
+	del bpy.types.Scene.Lumiere
 	del bpy.types.Scene.Lumiere_lights_list
 	del bpy.types.Scene.Lumiere_lights_list_index

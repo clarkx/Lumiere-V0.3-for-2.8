@@ -31,8 +31,9 @@ from math import (
 	)
 
 # -------------------------------------------------------------------- #
-def raycast_light(self, event, context, range, ray_max=1000.0):
+def raycast_light(self, event, context, range, shadow=False, shadow_hit=None, ray_max=1000.0):
 	"""Compute the location and rotation of the light from the angle or normal of the targeted face off the object"""
+
 	length_squared = 0
 	scene = context.scene
 	light = context.active_object
@@ -40,6 +41,47 @@ def raycast_light(self, event, context, range, ray_max=1000.0):
 	region = context.region
 	coord = (event.mouse_region_x, event.mouse_region_y)
 
+# -------------------------------------------------------------------- #
+	# Select the targeted object
+	def visible_objects_and_duplis():
+		if light.Lumiere.target :
+			obj_trgt = light.Lumiere.target
+			yield (obj_trgt, obj_trgt.matrix_world.copy())
+		else:
+			for dup in depsgraph.object_instances:
+				if dup.object.name not in context.scene.collection.children['Lumiere'].all_objects or \
+				(dup.object.name in context.scene.collection.children['Lumiere'].all_objects and \
+				(dup.object.Lumiere.color_type == 'Reflector' and dup.object.data.name != light.data.name)):
+
+					if dup.is_instance:
+						yield (dup.instance_object, dup.instance_object.matrix_world.copy())
+					else:
+						yield (dup.object.original, dup.object.original.matrix_world.copy())
+
+# -------------------------------------------------------------------- #
+	def obj_ray_cast(obj_trgt, matrix):
+		# Get the ray direction from the view angle to the targeted object
+		matrix_inv = matrix.inverted()
+		ray_origin_obj = matrix_inv @ ray_origin
+		ray_target_obj = matrix_inv @ ray_target
+		ray_direction_obj = ray_target_obj - ray_origin_obj
+
+		# Cast the ray to the targeted object
+		success, hit, normal, face_index = obj_trgt.ray_cast(ray_origin_obj, ray_direction_obj)
+
+		if success:
+			return hit, normal, face_index
+		else:
+			return None, None, None
+
+# -------------------------------------------------------------------- #
+	def link_to_light():
+		if context.scene.Lumiere.env_type == "Texture" or context.scene.Lumiere.env_type == "Sky":
+			if context.scene.Lumiere.link_to_light and context.scene.Lumiere.link_to_light == light:
+				return True
+			else:
+				return False
+# -------------------------------------------------------------------- #
 	# Get the ray from the viewport and mouse
 	# Direction vector from the viewport to 2d coord
 	view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, (coord))
@@ -50,93 +92,68 @@ def raycast_light(self, event, context, range, ray_max=1000.0):
 
 	depsgraph =  context.evaluated_depsgraph_get()
 
-	# Select the targeted object
-	def visible_objects_and_duplis():
-		if light.Lumiere.target :
-			obj_trgt = light.Lumiere.target
-			yield (obj_trgt, obj_trgt.matrix_world.copy())
-		else:
-			for dup in depsgraph.object_instances:
-				if dup.object.type == 'MESH':
-					if dup.object.name not in context.scene.collection.children['Lumiere'].all_objects or \
-					(dup.object.name in context.scene.collection.children['Lumiere'].all_objects and \
-					(dup.object.Lumiere.color_type == 'Reflector' and dup.object.data.name != light.data.name)):
-
-						if dup.is_instance:
-							yield (dup.instance_object, dup.instance_object.matrix_world.copy())
-						else:
-							yield (dup.object.original, dup.object.original.matrix_world.copy())
-
-
-	# Cast the ray to the targeted object
-	def obj_ray_cast(obj_trgt, matrix):
-		# Get the ray direction from the view angle to the targeted object
-		matrix_inv = matrix.inverted()
-		ray_origin_obj = matrix_inv @ ray_origin
-		ray_target_obj = matrix_inv @ ray_target
-		ray_direction_obj = ray_target_obj - ray_origin_obj
-
-		# Cast the ray
-		success, hit, normal, face_index = obj_trgt.ray_cast(ray_origin_obj, ray_direction_obj)
-
-		if success:
-			return success, hit, normal
-		else:
-			return None, None, None
-
 	# Find the closest object
-	# best_length_squared = ray_max * ray_max
 	best_length_squared = -1.0
 	best_obj = None
 
 	# Find the position of the light using the reflect angle and the object targeted normal
 	for obj_trgt, matrix_trgt in visible_objects_and_duplis():
-		success, hit, _normal = obj_ray_cast(obj_trgt, matrix_trgt)
+		if obj_trgt.type == 'MESH':
+			hit, normal_trgt, face_index = obj_ray_cast(obj_trgt, matrix_trgt)
 
-		if success is not None :
-			# Get the normal of the face from the targeted object
-			normal = matrix_trgt.to_3x3().inverted().transposed() @ _normal
-			normal.normalize()
+			if hit is not None :
+				hit_world = matrix_trgt @ hit
+				length_squared = (hit_world - ray_origin).length_squared
 
-			# Define the direction based on the normal of the targeted object, the view angle or the bounding box
-			if light.Lumiere.reflect_angle == "Accurate":
-				reflect_dir = (view_vector).reflect(normal)
-			elif light.Lumiere.reflect_angle == "Normal":
-				if obj_trgt.name in context.scene.collection.children['Lumiere'].all_objects:
-					reflect_dir = -normal
-				else:
-					reflect_dir = normal
+				if best_obj is None or length_squared < best_length_squared:
+					best_length_squared = length_squared
+					best_obj = obj_trgt
 
-			elif light.Lumiere.reflect_angle == "Estimated":
-				if light.Lumiere.auto_bbox_center:
-					local_bbox_center = 0.125 * sum((Vector(b) for b in obj_trgt.bound_box), Vector())
-					global_bbox_center = obj_trgt.matrix_world @ local_bbox_center
-				else:
-					global_bbox_center = Vector(light.Lumiere.bbox_center)
-				reflect_dir = (matrix_trgt @ hit) - global_bbox_center
-				reflect_dir.normalize()
+					# Get the normal of the face from the targeted object
+					normal = matrix_trgt.to_3x3().inverted().transposed() @ normal_trgt
+					normal.normalize()
 
-			# Define light location : Hit + Direction + Range
-			light_loc = (matrix_trgt @ hit) + (reflect_dir * range)
+					# Define the direction based on the normal of the targeted object, the view angle or the bounding box
+					if shadow:
+						reflect_dir = Vector(shadow_hit) - Vector(light.Lumiere.shadow)
+						reflect_dir.normalize()
+						light_loc = Vector(shadow_hit) + (reflect_dir * range)
+					else:
+						if light.Lumiere.reflect_angle == "Accurate":
+							reflect_dir = (view_vector).reflect(normal)
 
-			length_squared = ((matrix_trgt @ hit) - ray_origin).length_squared
+						elif light.Lumiere.reflect_angle == "Normal":
+							if obj_trgt.name in context.scene.collection.children['Lumiere'].all_objects:
+								reflect_dir = -normal
+							else:
+								reflect_dir = normal
 
-			if best_obj is None or length_squared < best_length_squared:
-				best_obj = obj_trgt
-				best_length_squared = length_squared
-				_matrix_trgt = matrix_trgt
-				_hit = hit
-				_light_loc = light_loc
-				_direction = reflect_dir
+						elif light.Lumiere.reflect_angle == "Estimated":
+							if light.Lumiere.auto_bbox_center:
+								local_bbox_center = 0.125 * sum((Vector(b) for b in obj_trgt.bound_box), Vector())
+								global_bbox_center = obj_trgt.matrix_world @ local_bbox_center
+								light.Lumiere.bbox_center = global_bbox_center
+							else:
+								global_bbox_center = Vector(light.Lumiere.bbox_center)
+							reflect_dir = (matrix_trgt @ hit) - global_bbox_center
+							reflect_dir.normalize()
 
-				if light.Lumiere.reflect_angle == "Estimated":
-					light.Lumiere.bbox_center = global_bbox_center
-				# Parent the light to the target object
-				light.parent = obj_trgt
-				light.matrix_parent_inverse = matrix_trgt.inverted()
+						# Define light location : Hit + Direction + Range
+						light_loc = (matrix_trgt @ hit) + (reflect_dir * range)
+
+					_matrix_trgt = matrix_trgt
+					_hit = hit
+					_light_loc = light_loc
+					_direction = reflect_dir
+
+					# Parent the light to the target object
+					if not shadow:
+						light.parent = obj_trgt
+						light.matrix_parent_inverse = matrix_trgt.inverted()
 
 	# Define location, rotation and scale
 	if length_squared > 0 :
+
 		if self.shift :
 			track  = light.location - Vector(_matrix_trgt @ _hit)
 			rotaxis = (track.to_track_quat('Z','Y')).to_euler()
@@ -144,9 +161,10 @@ def raycast_light(self, event, context, range, ray_max=1000.0):
 			rotaxis = (_direction.to_track_quat('Z','Y')).to_euler()
 			light.location = Vector((_light_loc[0], _light_loc[1], _light_loc[2]))
 
-		light.Lumiere.hit = (_matrix_trgt @ _hit)
+		if not shadow:
+			light.Lumiere.hit = (_matrix_trgt @ _hit)
 
-	# Update rotation and pitch for spherical coordinate
+		# Update rotation and pitch for spherical coordinate
 		x,y,z = light.location - Vector((light.Lumiere.hit))
 		r = sqrt(x**2 + y**2 + z**2)
 		theta = atan2(y, x)
@@ -154,13 +172,40 @@ def raycast_light(self, event, context, range, ray_max=1000.0):
 			theta = radians(degrees(theta) + 360)
 		light.Lumiere.rotation = degrees(theta)
 		phi = acos( z / r )
-		light.Lumiere.pitch = degrees(phi)
+
+		# Do not update if linked to an environment texture
+		if not (context.scene.Lumiere.env_type == "Texture" and link_to_light()):
+			light.Lumiere.pitch = degrees(phi)
+			light.rotation_euler = rotaxis
 
 		light.Lumiere.direction = _direction
-		light.rotation_euler = rotaxis
 
-		if light.Lumiere.sky_texture:
-			update_sky(self, context)
+		light.Lumiere.light_mode = "None"
+
+		# Shadow location
+		if not shadow:
+			best_obj.hide_viewport = True
+			result2, hit_location, face_normal, face_index, object2, matrix2 = context.scene.ray_cast(context.view_layer, light.location, (Vector(light.Lumiere.hit) - light.location))
+			if result2:
+				light.Lumiere.shadow = hit_location
+				# self.shadow = True
+			else:
+				# self.shadow = False
+				light.Lumiere.shadow = (0,0,0)
+			best_obj.hide_viewport = False
+
+		if link_to_light():
+			if context.scene.Lumiere.env_type == "Sky":
+				update_sky(self, context, light.rotation_euler, light)
+
+			elif context.scene.Lumiere.env_type == "Texture":
+				if context.scene.Lumiere.link_hdr_to_light:
+					context.scene.Lumiere.env_hdr_rotation = context.scene.Lumiere.env_hdr_to_pxl - 90 + degrees(light.rotation_euler.z)
+				if context.scene.Lumiere.link_reflect_to_light:
+					context.scene.Lumiere.env_reflect_rotation = context.scene.Lumiere.env_reflect_to_pxl - 90 + degrees(light.rotation_euler.z)
+
+
+
 # -------------------------------------------------------------------- #
 def create_2d_circle(step, radius, rotation = 0, center_x=0, center_y=0):
 	""" Create the vertices of a 2d circle at (0,0) """
@@ -247,19 +292,26 @@ def export_props_light(self, context, light):
 	mat = get_mat_name(light)
 	if light.type == "LIGHT":
 		colramp = light.data.node_tree.nodes["ColorRamp"].color_ramp
+		falloff_ramp = light.data.node_tree.nodes["Falloff colRamp"].color_ramp
 		lumiere_dict[light.name]['smooth'] = light.data.node_tree.nodes["Light Falloff"].inputs[1].default_value
 		if light.data.type == "AREA" :
 			lumiere_dict[light.name]['shape'] = light.data.shape
 	else:
 		colramp = mat.node_tree.nodes['ColorRamp'].color_ramp
+		falloff_ramp = mat.node_tree.nodes['Falloff colRamp'].color_ramp
 		lumiere_dict[light.name]['smooth'] = mat.node_tree.nodes['Light Falloff'].inputs[1].default_value
 
-	# Gradient
+	# Gradient coloramp
 	if light.Lumiere.color_type in ("Linear", "Spherical", "Gradient"):
 		lumiere_dict[light.name]['gradient'] = {}
 		lumiere_dict[light.name]['interpolation'] = colramp.interpolation
 		for i in range(len(colramp.elements)):
 			lumiere_dict[light.name]['gradient'].update({colramp.elements[i].position: colramp.elements[i].color[:]})
+
+	# Falloff coloramp
+	lumiere_dict[light.name]['falloff_ramp'] = {}
+	for i in range(len(falloff_ramp.elements)):
+		lumiere_dict[light.name]['falloff_ramp'].update({falloff_ramp.elements[i].position: falloff_ramp.elements[i].color[:]})
 
 	return(lumiere_dict)
 
@@ -313,12 +365,13 @@ def cartesian_coordinates(r, theta, phi, hit=(0,0,0)):
 	return Vector((x, y, z))
 
 # -------------------------------------------------------------------- #
-def getSunPosition(light, localTime = 12.0, latitude = 48.87, longitude = 2.67, northOffset = 1.00, utcZone = 0, month = 12, day = 22, year = 2012, distance = 5):
+def getSunPosition(localTime = 12.0, latitude = 48.87, longitude = 2.67, northOffset = 1.00, utcZone = 0, month = 12, day = 22, year = 2012, distance = 5):
 	"""
 	Compute the sun position based on latitude and longitude
 	The sun position is from the addon 'sun_position' from Michael Martin (xaire)
 	https://archive.blender.org/wiki/index.php/Extensions:2.6/Py/Scripts/3D_interaction/Sun_Position/
 	"""
+
 	longitude *= -1                 # for internal calculations
 	utcTime = localTime + utcZone   # Set Greenwich Meridian Time
 
@@ -346,6 +399,7 @@ def getSunPosition(light, localTime = 12.0, latitude = 48.87, longitude = 2.67, 
 	csz = (sin(latitude) * sin(solarDec) +
 		   cos(latitude) * cos(solarDec) *
 		   cos(radians(hourAngle)))
+
 	if csz > 1.0:
 		csz = 1.0
 	elif csz < -1.0:
@@ -392,26 +446,25 @@ def getSunPosition(light, localTime = 12.0, latitude = 48.87, longitude = 2.67, 
 
 	solarAzimuth = azimuth + northOffset
 
-	sun = light
-
 	Sun_AzNorth = solarAzimuth
 
 	Sun_Theta = pi / 2 - radians(solarElevation)
 	Sun_Phi = radians(solarAzimuth) * -1
 
+	location = setSunPosition(Sun_Theta, Sun_Phi, distance)
 
-	setSunPosition(sun, distance, Sun_Theta, Sun_Phi)
+	rotation = ((radians(solarElevation - 90), 0, radians(-solarAzimuth)))
 
-	sun.rotation_euler = (( radians(solarElevation - 90), 0, radians(-solarAzimuth)))
+	return location, rotation
 
-def setSunPosition(obj, distance, Sun_Theta, Sun_Phi):
+def setSunPosition(Sun_Theta, Sun_Phi, distance = 1):
 
 	locX = sin(Sun_Phi) * sin(-Sun_Theta) * distance
 	locY = sin(Sun_Theta) * cos(Sun_Phi) * distance
 	locZ = cos(Sun_Theta) * distance
 
 	try:
-		obj.location = locX, locY, locZ
+		return (locX, locY, locZ)
 	except:
 		pass
 
@@ -446,10 +499,10 @@ def obliquityOfEcliptic(t):
 			(0.00059 / 3600) * t ** 2 + (0.001813 / 3600) * t ** 3))
 
 def julianTimeFromY2k(utcTime, year, month, day):
-    century = 36525.0  # Days in Julian Century
-    epoch = 2451545.0  # Julian Day for 1/1/2000 12:00 gmt
-    jd = getJulianDay(year, month, day)
-    return ((jd + (utcTime / 24)) - epoch) / century
+	century = 36525.0  # Days in Julian Century
+	epoch = 2451545.0  # Julian Day for 1/1/2000 12:00 gmt
+	jd = getJulianDay(year, month, day)
+	return ((jd + (utcTime / 24)) - epoch) / century
 
 def getJulianDay(year, month, day):
 	if month <= 2:
@@ -487,13 +540,12 @@ def meanAnomalySun(t):
 	return (357.52911 + t * (35999.05029 - 0.0001537 * t))
 
 # -------------------------------------------------------------------- #
-def update_sky(self, context):
-	light = context.active_object
+def update_sky(self, context, sun_direction, light = None):
 
 	# Credits : https://www.youtube.com/watch?v=YXso7kNzxIU
-	xAng = light.rotation_euler[0]
-	yAng = light.rotation_euler[1]
-	zAng = light.rotation_euler[2]
+	xAng = sun_direction[0]
+	yAng = sun_direction[1]
+	zAng = sun_direction[2]
 
 	vec = Vector((0.0,0.0,1.0))
 	xMat = Matrix(((1.1,0.0,0.0), (0.0, cos(xAng), -sin(xAng)), (0.0, sin(xAng), cos(xAng))))
@@ -505,9 +557,12 @@ def update_sky(self, context):
 	vec = zMat @ vec
 
 	bpy.data.worlds['Lumiere_world'].node_tree.nodes['Sky Texture'].sun_direction = vec
+	bpy.data.worlds['Lumiere_world'].node_tree.nodes['Sun normal'].outputs[0].default_value = vec
+	bpy.data.worlds['Lumiere_world'].node_tree.nodes['Blackbody'].inputs[0].default_value = 4000 + (1780 * vec.z)
 
-	mat = get_mat_name(light)
+	if light is not None:
+		mat = get_mat_name(light)
 
-	blackbody = mat.node_tree.nodes['Blackbody']
-	#4000 -> HORIZON // 5780 -> Daylight
-	blackbody.inputs[0].default_value = 4000 + (1780 * vec.z)
+		blackbody = mat.node_tree.nodes['Blackbody']
+		#4000 -> HORIZON // 5780 -> Daylight
+		light.Lumiere.blackbody = 4000 + (1780 * vec.z)

@@ -61,9 +61,9 @@ def create_softbox(softbox_name = "Lumiere"):
 	return(light)
 
 # -------------------------------------------------------------------- #
-# Point light
+# Blender Light
 """Create a blender light"""
-def create_lamp(name, type):
+def create_lamp(type, name = "Lumiere"):
 	# Create the lamp
 	light_data = bpy.data.lights.new(name = name, type = type.upper())
 	light = bpy.data.objects.new(name = name, object_data = light_data)
@@ -80,6 +80,7 @@ def create_lamp(name, type):
 	light.select_set(state=True)
 	light_selected = True
 	bpy.context.view_layer.objects.active = light
+	light.Lumiere.light_type = type
 
 	# Create nodes
 	lamp_mat(light)

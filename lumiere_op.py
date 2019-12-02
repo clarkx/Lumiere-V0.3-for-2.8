@@ -2,18 +2,22 @@ import bpy
 import os
 import json
 import sys
-
+from bpy_extras import view3d_utils
 from .lumiere_utils import (
+	get_mat_name,
 	raycast_light,
 	export_props_light,
 	export_props_group,
 	get_lumiere_dict,
 	update_lumiere_dict,
+	cartesian_coordinates,
+	setSunPosition,
 	)
 
 from .lumiere_draw import (
 	draw_callback_2d,
 	draw_callback_3d,
+	draw_target_px,
 	)
 
 from .lumiere_lights import (
@@ -40,9 +44,14 @@ from mathutils import (
 from math import (
 	sin,
 	cos,
+	acos,
+	atan2,
+	sqrt,
 	pi,
+	isnan,
+	degrees,
+	radians,
 	)
-
 
 # -------------------------------------------------------------------- #
 # Preset Menu
@@ -84,16 +93,19 @@ class LUMIERE_OT_PresetPopup(Operator):
 	#---Export individual light
 		col = layout.column()
 		row = col.row()
+
 		if len(context.scene.Lumiere_lights_list) > 0:
 			row.template_list("ALL_LIGHTS_UL_list", "",context.scene, "Lumiere_lights_list", context.scene, "Lumiere_lights_list_index", rows=2)
 			col2 = row.column(align=True)
-			op_add = col2.operator("custom.list_action", emboss=False, icon='IMPORT', text="")
+			op_add = col2.operator("lumiere.list_action", emboss=False, icon='IMPORT', text="")
 			op_add.action = 'IMPORT'
 			op_add.arg = "Import to scene"
 			row = col2.row(align=True)
-			op_del = row.operator("custom.list_action", emboss=False, icon='REMOVE', text="")
+			op_del = row.operator("lumiere.list_action", emboss=False, icon='REMOVE', text="")
 			op_del.action = 'REMOVE'
 			op_del.arg = "Remove from list"
+		else:
+			row.label(text="Export list is empty")
 
 		if (context.active_object is not None):
 			if ("Lumiere" in str(context.active_object.users_collection)) \
@@ -108,6 +120,7 @@ class LUMIERE_OT_PresetPopup(Operator):
 					row.prop(light, "name", text="Light", expand=False)
 					op = row.operator("object.export_light", text ="", emboss=False, icon="ADD")
 					op.name = light.name
+
 
 	def invoke(self, context, event):
 		context.scene.Lumiere_lights_list.clear()
@@ -173,7 +186,7 @@ class LUMIERE_OT_export_light(Operator):
 # -------------------------------------------------------------------- #
 class PRESET_OT_actions(Operator):
 	"""Add or remove preset from ights"""
-	bl_idname = "custom.list_action"
+	bl_idname = "lumiere.list_action"
 	bl_label = "Import/Remove"
 	bl_description = "Import or remove from the list"
 	bl_options = {'REGISTER'}
@@ -212,10 +225,14 @@ class PRESET_OT_actions(Operator):
 
 		if light_from_dict["Lumiere"]["light_type"] == "Softbox":
 			light = create_softbox(light_name)
+			mat = get_mat_name(light)
 			colramp = mat.node_tree.nodes['ColorRamp'].color_ramp
+			falloff_ramp = mat.node_tree.nodes['Falloff colRamp'].color_ramp
 		else:
-			light = create_lamp(light_name, light_from_dict["Lumiere"]["light_type"])
+			light = create_lamp(light_from_dict["Lumiere"]["light_type"], light_name)
 			colramp = light.data.node_tree.nodes["ColorRamp"].color_ramp
+			falloff_ramp = light.data.node_tree.nodes['Falloff colRamp'].color_ramp
+
 			if light.data.type == "AREA" :
 				light.data.shape = light_from_dict['shape']
 
@@ -226,7 +243,7 @@ class PRESET_OT_actions(Operator):
 		light.Lumiere.light_type = light_from_dict["Lumiere"]["light_type"]
 		light.Lumiere.scale_x = light.Lumiere.scale_x
 
-		# Gradient
+		# Gradient coloramp
 		if light.Lumiere.color_type in ("Linear", "Spherical", "Gradient"):
 			colramp.interpolation = light_from_dict['interpolation']
 			i = 0
@@ -237,8 +254,16 @@ class PRESET_OT_actions(Operator):
 				colramp.elements[i].color[:] = value
 				i += 1
 
-		update_mat(self, context)
+		# Falloff coloramp
+		i = 0
+		for key, value in sorted(light_from_dict['falloff_ramp'].items()) :
+			if i > 1:
+				falloff_ramp.elements.new(float(key))
+			falloff_ramp.elements[i].position = float(key)
+			falloff_ramp.elements[i].color[:] = value
+			i += 1
 
+		update_mat(self, context)
 
 	def remove_light(self, context):
 		list = context.scene.Lumiere_lights_list
@@ -254,7 +279,6 @@ class PRESET_OT_actions(Operator):
 		list.remove(list_index)
 		list_index -= 1
 		update_lumiere_dict(self.my_dict)
-
 
 	def invoke(self, context, event):
 		scn = context.scene
@@ -274,33 +298,35 @@ class PRESET_OT_actions(Operator):
 		return {"FINISHED"}
 
 # -------------------------------------------------------------------- #
-class OpStatus(object):
-	"""Operator status : Running or not"""
-	running = False
-
-	def __init__(cls, value):
-		cls.value = running
-
-# -------------------------------------------------------------------- #
 class LUMIERE_OT_ray_operator(Operator):
 	bl_idname = "lumiere.ray_operator"
 	bl_label = "Lighting operator"
 	bl_description = "Click to enter in interactive lighting mode"
 	bl_options = {'REGISTER', 'UNDO'}
 
+	action : bpy.props.StringProperty()
+	shadow : bpy.props.BoolProperty()
+	light_type : bpy.props.StringProperty()
 
 	@classmethod
 	def poll(cls, context):
 		return context.area.type == 'VIEW_3D' and context.mode == 'OBJECT'
 
 	def __init__(self):
+		if self.action == "shadow":
+			self.shadow = True
+		else:
+			self.shadow = False
+		self.is_running = False
 		self.draw_handle_2d = None
 		self.draw_handle_3d = None
 		self.light_selected = False
 		self.shift = False
 		self.ctrl = False
 		self.lmb = False
-		self.is_running = False
+		self.txt_shift = "SHIFT : Target | "
+		self.txt_ctrl = "CTRL : Energy | "
+		self.txt_alt = "ALT : Rage | "
 		self.create_collection()
 
 	def invoke(self, context, event):
@@ -320,18 +346,21 @@ class LUMIERE_OT_ray_operator(Operator):
 		return {"RUNNING_MODAL"}
 
 	def register_handlers(self, args, context):
+		context.workspace.status_text_set(self.txt_shift + self.txt_ctrl + self.txt_alt)
 		if self.is_running == False:
-			OpStatus.running = True
 			self.is_running = True
+			context.scene.is_running = True
+
 			self.draw_handle_2d = bpy.types.SpaceView3D.draw_handler_add(draw_callback_2d, args, "WINDOW", "POST_PIXEL")
 			self.draw_handle_3d = bpy.types.SpaceView3D.draw_handler_add(draw_callback_3d, args, "WINDOW", "POST_VIEW")
 
 	def unregister_handlers(self, context):
+		context.workspace.status_text_set(None)
 		bpy.types.SpaceView3D.draw_handler_remove(self.draw_handle_2d, "WINDOW")
 		bpy.types.SpaceView3D.draw_handler_remove(self.draw_handle_3d, "WINDOW")
 		self.draw_handle_2d = None
 		self.draw_handle_3d = None
-		OpStatus.running = False
+		context.scene.is_running = False
 
 		if context.view_layer.active_layer_collection.name == "Lumiere":
 			context.view_layer.active_layer_collection = context.view_layer.layer_collection
@@ -342,6 +371,9 @@ class LUMIERE_OT_ray_operator(Operator):
 
 		# Is the object selected is from Lumiere collection
 		check_light_selected(self, context)
+
+		light = context.active_object
+		rv3d = context.region_data
 
 		# Hide 3d cursor
 		if self.in_view_3d:
@@ -356,6 +388,9 @@ class LUMIERE_OT_ray_operator(Operator):
 
 			# Ctrl press
 			self.ctrl = True if event.ctrl else False
+
+			# Alt press
+			self.alt = True if event.alt else False
 
 			if context.area != self.lumiere_area:
 				self.is_running = False
@@ -384,14 +419,38 @@ class LUMIERE_OT_ray_operator(Operator):
 
 			# Left mouse button pressed with an object from Lumiere collection
 			if self.lmb and self.in_view_3d:
-				context.scene.cycles.preview_pause = self.addon_prefs.render_pause
-				if self.light_selected :
-					# Raycast to move the light compared to the targeted object
-					raycast_light(self, event, context, context.object.Lumiere.range)
+				if self.action == "shadow":
+					coord = (event.mouse_region_x, event.mouse_region_y)
+					self.shadow_hit = Vector(bpy.context.active_object.Lumiere.hit).copy()
+
+					# Get the ray from the viewport and mouse
+					# Direction vector from the viewport to 2d coord
+					view_vector = view3d_utils.region_2d_to_vector_3d(context.region, rv3d, (coord))
+					# 3d view origin vector from the region
+					ray_origin = view3d_utils.region_2d_to_origin_3d(context.region, rv3d, (coord))
+					# Define a default direction vector
+					ray_target = ray_origin + view_vector
+					ray_dir = ray_target - ray_origin
+					result, hit_location, face_normal, face_index, object, matrix = context.scene.ray_cast(context.view_layer, ray_origin, ray_dir)
+					light.Lumiere.shadow = hit_location
+
+					raycast_light(self, event, context, context.object.Lumiere.range, shadow=True, shadow_hit=self.shadow_hit,)
 				else:
-					create_softbox()
+					context.scene.cycles.preview_pause = self.addon_prefs.render_pause
+					if self.light_selected :
+						# Raycast to move the light compared to the targeted object
+						raycast_light(self, event, context, context.object.Lumiere.range)
+					else:
+						if self.light_type == "Softbox":
+							create_softbox()
+						else:
+							create_lamp(type = self.light_type)
 
 				return {'RUNNING_MODAL'}
+			elif self.ctrl and self.in_view_3d:
+				light.Lumiere.energy += (event.mouse_x - event.mouse_prev_x)
+			elif self.alt and self.in_view_3d:
+				light.Lumiere.range += (event.mouse_x - event.mouse_prev_x) * .1
 			else:
 				if self.addon_prefs.render_pause:
 					context.scene.cycles.preview_pause = False
@@ -418,8 +477,6 @@ class LUMIERE_OT_ray_operator(Operator):
 		if 'Lumiere' not in bpy.context.scene.collection.children.keys() :
 			_lumiere_coll = bpy.data.collections.new("Lumiere")
 			bpy.context.scene.collection.children.link(_lumiere_coll)
-
-
 
 # Utilities
 ###############################################
@@ -458,6 +515,173 @@ def check_light_selected(self, context):
 
 
 # -------------------------------------------------------------------- #
+class LUMIERE_OT_SelectPixel(Operator):
+	"""Align the environment background with the selected pixel"""
+
+	bl_idname = "lumiere.select_pixel"
+	bl_description = "Target the selected pixel from the image texture and compute the rotation.\n"+\
+					 "Use this to align a sun or a lamp from your image."
+	bl_label = "Select pixel"
+
+	light : bpy.props.StringProperty()
+	img_name : bpy.props.StringProperty()
+	img_type : bpy.props.StringProperty()
+	img_size_x : bpy.props.FloatProperty()
+	img_size_y : bpy.props.FloatProperty()
+
+	def __init__(self):
+		self.is_running = False
+
+	def remove_handler(self):
+		self.is_running = False
+		if self._handle is not None:
+			bpy.types.SpaceImageEditor.draw_handler_remove(self._handle, 'WINDOW')
+		self._handle = None
+
+	def unregister_handlers(self, context):
+		self.is_running = False
+		bpy.types.SpaceImageEditor.draw_handler_remove(self._handle, 'WINDOW')
+
+	def check_region(self,context,event):
+		if context.area != None:
+			for region in self.lumiere_area.regions:
+				if(region.type == "WINDOW" and
+					region.x <= event.mouse_x < region.x + region.width and
+					region.y <= event.mouse_y < region.y + region.height):
+					self.in_view_editor = True
+				else:
+					self.in_view_editor = False
+
+	def execute(self, context):
+		if self.light != "":
+			context.view_layer.objects.active = bpy.data.objects[self.light]
+			light = context.active_object
+		else:
+			light = context.active_object
+
+		light['pixel_select'] = True
+		context.area.spaces.active.image = bpy.data.images[self.img_name]
+		bpy.data.images[self.img_name].use_view_as_render = True
+
+	def modal(self, context, event):
+		context.area.tag_redraw()
+	#---Find the limit of the view3d region
+		self.check_region(context,event)
+		light = bpy.data.objects[self.light]
+
+		try:
+			if self.in_view_editor and context.area == self.lumiere_area:
+
+			#---Allow navigation
+				if event.type in {'MIDDLEMOUSE'} or event.type.startswith("NUMPAD"):
+					return {'PASS_THROUGH'}
+
+			#---Zoom Keys
+				elif (event.type in	 {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and not
+				   (event.ctrl or event.shift or event.alt)):
+					return{'PASS_THROUGH'}
+
+				elif event.type == 'MOUSEMOVE':
+					for region in self.lumiere_area.regions:
+						if region.type == 'WINDOW':
+							context.window.cursor_modal_set("PAINT_CROSS")
+							mouse_x = event.mouse_x - region.x
+							mouse_y = event.mouse_y - region.y
+							uv = region.view2d.region_to_view(mouse_x, mouse_y)
+						# https://blenderartists.org/forum/showthread.php?292866-Pick-the-color-of-a-pixel-in-the-Image-Editor
+							if not isnan(uv[0]):
+								x = int(self.img_size_x * uv[0]) % self.img_size_x
+								y = int(self.img_size_y * uv[1]) % self.img_size_y
+								self.mouse_path = (x,y)
+
+				elif event.type == 'RIGHTMOUSE':
+					return{'PASS_THROUGH'}
+
+				elif event.type == 'LEFTMOUSE':
+					rot_x = ((self.mouse_path[0] * 360) / self.img_size_x) - 180
+					rot_y = ((self.mouse_path[1] * 180) / self.img_size_y)
+
+					if self.img_type == "Hdr":
+						context.scene.Lumiere.env_hdr_to_pxl = rot_x
+						context.scene.Lumiere.link_hdr_to_light = True
+						context.scene.Lumiere.env_hdr_rotation = rot_x - 90 + degrees(light.rotation_euler.z)
+						light.Lumiere.pitch = -(rot_y - 180)
+
+					elif self.img_type == "Reflect":
+						context.scene.Lumiere.env_reflect_to_pxl = rot_x
+						context.scene.Lumiere.link_reflect_to_light = True
+
+						if context.scene.Lumiere.env_hdr_name != "":
+							context.scene.Lumiere.env_reflect_rotation = rot_x -90 + degrees(light.rotation_euler.z)
+
+						else:
+							diff = context.scene.Lumiere.env_reflect_rotation - context.scene.Lumiere.env_reflect_to_pxl
+
+							if diff < -360:
+								light.Lumiere.rotation = diff + 360
+							elif diff > 360:
+								light.Lumiere.rotation = diff - 360
+							else:
+								light.Lumiere.rotation = diff
+
+							light.Lumiere.pitch = -(rot_y - 180)
+
+					bpy.context.window.cursor_modal_set("DEFAULT")
+					self.remove_handler()
+					if context.area.type == 'IMAGE_EDITOR':
+						context.area.type = 'VIEW_3D'
+					return {'FINISHED'}
+
+				elif event.type == 'ESC':
+					bpy.context.window.cursor_modal_set("DEFAULT")
+					context.area.header_text_set()
+					self.remove_handler()
+					if context.area.type == 'IMAGE_EDITOR':
+						context.area.type = 'VIEW_3D'
+					return {'CANCELLED'}
+
+				return {'RUNNING_MODAL'}
+
+			else:
+				bpy.context.window.cursor_modal_set("DEFAULT")
+				return{'PASS_THROUGH'}
+
+		except Exception as error:
+			print("\n[Lumiere ERROR]\n")
+			import traceback
+			traceback.print_exc()
+			self.unregister_handlers(context)
+
+			self.report({'WARNING'},
+						"Operation finished. (Check the console for more info)")
+
+			return {'FINISHED'}
+
+
+	def invoke(self, context, event):
+		self.mouse_path = [0,0]
+		if self.is_running == False:
+			self.is_running = True
+
+		if context.space_data.type == 'VIEW_3D':
+			context.area.type = 'IMAGE_EDITOR'
+			context.area.header_text_set("Confirm: LMB")
+			t_panel = context.area.regions[2]
+			n_panel = context.area.regions[3]
+			self.view_3d_region_x = Vector((context.area.x + t_panel.width, context.area.x + context.area.width - n_panel.width))
+
+			self.execute(context)
+			self.img_size = [self.img_size_x, self.img_size_y]
+			args = (self, context, event)
+			self.lumiere_area = context.area
+
+			context.window_manager.modal_handler_add(self)
+			self._handle = bpy.types.SpaceImageEditor.draw_handler_add(draw_target_px, args, 'WINDOW', 'POST_PIXEL')
+
+
+		return {'RUNNING_MODAL'}
+
+# -------------------------------------------------------------------- #
 ## Register
 
 classes = [
@@ -465,14 +689,17 @@ classes = [
 	LUMIERE_OT_ray_operator,
 	PRESET_OT_actions,
 	LUMIERE_OT_PresetPopup,
+	LUMIERE_OT_SelectPixel,
 	]
 
 def register():
 	from bpy.utils import register_class
 	for cls in classes:
 		register_class(cls)
+	bpy.types.Scene.is_running = bpy.props.BoolProperty(default=False)
 
 def unregister():
 	from bpy.utils import unregister_class
 	for cls in reversed(classes):
 		unregister_class(cls)
+	del bpy.types.Scene.is_running

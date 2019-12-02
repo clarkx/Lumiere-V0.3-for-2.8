@@ -9,10 +9,6 @@ from math import (
 	radians,
 	)
 
-from .lumiere_op import (
-	OpStatus,
-	)
-
 from bpy.types import (
 	GizmoGroup,
 	Gizmo,
@@ -48,12 +44,11 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 		color_select = context.preferences.themes[0].view_3d.object_selected
 		color_active = context.preferences.themes[0].view_3d.object_active
 		scale_basis = 0.07
-		color_alpha = 1
+		color_alpha = 0.8
 		color_highlight = 0.8
 		alpha_highlight = 1
 		line_width = 5
 		line_length = .4
-
 
 		#-- HIT Gizmo
 		gz_hit = self.gizmos.new("GIZMO_GT_move_3d")
@@ -102,33 +97,51 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 		gz_scale_x.line_width = line_width
 		self.scale_x_widget = gz_scale_x
 
+		#-- Shadow Gizmo
+		gz_shadow = self.gizmos.new("GIZMO_GT_move_3d")
+		op_shadow = gz_shadow.target_set_operator("lumiere.ray_operator")
+		op_shadow.action = "shadow"
+		gz_shadow.draw_options={"FILL", "ALIGN_VIEW"}
+		gz_shadow.color = color_active
+		gz_shadow.alpha = color_alpha
+		gz_shadow.color_highlight = color_select
+		gz_shadow.alpha_highlight = alpha_highlight
+		gz_shadow.scale_basis = scale_basis*.8
+		self.gz_shadow_widget = gz_shadow
+
 		#-- BBOX Gizmo
 		bbox_circle = self.gizmos.new("GIZMO_GT_move_3d")
 		bbox_circle.draw_options={"FILL", "ALIGN_VIEW"}
 		bbox_circle.scale_basis = scale_basis
+		bbox_circle.alpha = color_alpha
 		bbox_circle.hide_select = True
 		self.bbox_circle_widget = bbox_circle
 
 		gz_bbox_x = self.gizmos.new("GIZMO_GT_arrow_3d")
 		gz_bbox_x.color  = context.preferences.themes[0].user_interface.axis_x
 		gz_bbox_x.length  = line_length
+		gz_bbox_x.alpha = color_alpha
+		gz_bbox_x.scale_basis = 0.8
 		self.bbox_x_widget = gz_bbox_x
 
 		gz_bbox_y = self.gizmos.new("GIZMO_GT_arrow_3d")
 		gz_bbox_y.color  = context.preferences.themes[0].user_interface.axis_y
 		gz_bbox_y.length  = line_length
+		gz_bbox_y.alpha = color_alpha
+		gz_bbox_y.scale_basis = 0.8
 		self.bbox_y_widget = gz_bbox_y
 
 		gz_bbox_z = self.gizmos.new("GIZMO_GT_arrow_3d")
 		gz_bbox_z.color  = context.preferences.themes[0].user_interface.axis_z
 		gz_bbox_z.length  = line_length
+		gz_bbox_z.alpha = color_alpha
+		gz_bbox_z.scale_basis = 0.8
 		self.bbox_z_widget = gz_bbox_z
 
 		#-- SPOT CONE Gizmo
 		spot_circle = self.gizmos.new("GIZMO_GT_dial_3d")
 		spot_circle.draw_options={"ANGLE_START_Y", "ANGLE_VALUE"}
-		# spot_circle.target_set_prop('offset', light.data, 'spot_size')
-		spot_circle.scale_basis = .4 #light.data.spot_size
+		spot_circle.scale_basis = .4
 		spot_circle.use_draw_value = True
 		spot_circle.color = color_active
 		spot_circle.alpha = color_alpha
@@ -137,15 +150,15 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 		spot_circle.line_width = 2
 		self.spot_circle_widget = spot_circle
 
-
+# -------------------------------------------------------------------- #
 	def draw_prepare(self, context):
 		preferences = context.preferences
 		addon_prefs = preferences.addons[__package__].preferences
 
-
 		light = context.object
 		region = context.region
 		mat_hit = Matrix.Translation((light.Lumiere.hit))
+		mat_shadow = Matrix.Translation((light.Lumiere.shadow))
 		mat_rot = light.rotation_euler.to_matrix()
 		hit_matrix = mat_hit @ mat_rot.to_4x4()
 		mat_rot_x = Matrix.Rotation(radians(90.0), 4, 'Y')
@@ -153,11 +166,12 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 
 		self.range_widget.target_set_prop('offset', light.Lumiere, 'range')
 
-		if OpStatus.running == True or addon_prefs.gizmos == False:
+		if addon_prefs.gizmos == False or context.scene.is_running == True:
 			self.hit_widget.hide = True
 			self.range_widget.hide = True
 			self.scale_xy_widget.hide = True
 			self.scale_x_widget.hide = True
+			self.gz_shadow_widget.hide = True
 			self.bbox_circle_widget.hide = True
 			self.bbox_x_widget.hide = True
 			self.bbox_y_widget.hide = True
@@ -166,10 +180,20 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 		else:
 			self.hit_widget.hide = False
 			self.range_widget.hide = False
+
+			# Hide shadow gizmo if at center
+			if light.Lumiere.shadow[:] != (0,0,0) and not light.Lumiere.lock_img:
+				self.gz_shadow_widget.hide = False
+			else:
+				self.gz_shadow_widget.hide = True
+
 			self.spot_circle_widget.hide = True
 			self.scale_xy_widget.hide = False
 			self.scale_x_widget.hide = True
+
 			self.scale_xy_widget.target_set_prop('offset', light.Lumiere, 'scale_xy')
+
+			self.gz_shadow_widget.matrix_basis = mat_shadow
 
 			if (light.type == 'MESH' and not light.Lumiere.lock_scale) or \
 				((light.type == 'LIGHT' and light.data.type == "AREA" and \
@@ -184,12 +208,9 @@ class LUMIERE_GGT_3dgizmo(GizmoGroup):
 				self.spot_circle_widget.target_set_prop('offset', light.data, 'spot_size')
 				self.spot_circle_widget.matrix_basis = hit_matrix.normalized()
 
-			if light.Lumiere.light_type == "Sun" and light.Lumiere.reflect_angle =="Solar angle":
-				self.range_widget.matrix_basis = mat_rot.to_4x4()
-				self.hit_widget.hide = True
-			else:
-				self.hit_widget.matrix_basis = hit_matrix.normalized()
-				self.range_widget.matrix_basis = hit_matrix.normalized()
+			self.hit_widget.matrix_basis = hit_matrix.normalized()
+			self.range_widget.matrix_basis = hit_matrix.normalized()
+
 			self.scale_xy_widget.matrix_basis = light.matrix_world.normalized() @ mat_rot_y
 			self.scale_x_widget.matrix_basis = light.matrix_world.normalized() @ mat_rot_x
 

@@ -20,7 +20,7 @@ bl_info = {
 	"name": "Lumiere",
 	"author": "Clarkx",
 	"description": "Interactive Lighting add-on for Blender.",
-	"version": (0, 2),
+	"version": (0, 3),
 	"blender": (2, 80, 0),
 	"location": "3D View",
 	"warning": "",
