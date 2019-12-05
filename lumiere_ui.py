@@ -209,10 +209,11 @@ def update_spherical_coordinate(self, context, light=None):
 	phi = radians(light.Lumiere.pitch)
 
 	light.location = cartesian_coordinates(r, theta, phi, light.Lumiere.hit)
-
-	track  = light.location - Vector(light.Lumiere.hit)
-	rotaxis = (track.to_track_quat('Z','Y'))
-	light.rotation_euler = rotaxis.to_euler()
+	
+	if context.scene.is_running :
+		track  = light.location - Vector(light.Lumiere.hit)
+		rotaxis = (track.to_track_quat('Z','Y'))
+		light.rotation_euler = rotaxis.to_euler()
 
 	# Update direction for range update
 	light.Lumiere.direction = light.matrix_world.to_quaternion() @ Vector((0.0, 0.0, 1.0))
