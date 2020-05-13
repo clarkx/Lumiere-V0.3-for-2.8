@@ -70,3 +70,7 @@ def unregister():
 	lumiere_op.unregister()
 	lumiere_gizmo.unregister()
 	print("Unregistered Lumiere")
+
+	
+if __name__ == "__main__":
+    register()
